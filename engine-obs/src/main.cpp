@@ -6,6 +6,7 @@
 #include "AudioEngine.h"
 #include "NDI.h"
 #include "Projector.h"
+#include "PitchFilter.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -82,6 +83,7 @@ int main(int argc, char **argv) {
     ObsRuntime rt;
     if (!rt.start(oc)) { fprintf(stderr, "libobs não arrancou\n"); return 1; }
     PreviewOutput::registerType();
+    PitchFilter::registerType();
     NDI::load();
     NDI::registerTypes();
 

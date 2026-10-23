@@ -65,6 +65,8 @@ Playout (2026-10-23): fonte "Playout" que toca uma lista de ficheiros em sequên
 
 Audio Mixer (2026-10-23): channel strips verticais à maneira do vMix/OBS: VU true-peak + RMS com retenção de pico e escala dBFS, fader vertical (duplo clique = 0 dB, roda = 0,5 dB), pan, envios M/A/B, AFV, mute/solo (solo escurece os outros), atraso, cadeia de plugins com bypass e parâmetros, strips Master/Bus A/Bus B com VU e atribuição a stream/NDI/monitor; entradas de áudio (microfones e interfaces, p. ex. Volt 2) adicionam-se no rodapé do mixer.
 
+Afinação 432 Hz (2026-10-23): plugin "Afinação 432 Hz (pitch)" no Audio Mixer (por canal; parâmetro em cents no ⚙, −31,77 = 432 Hz) implementado no motor (WSOLA), sem alterar a velocidade do áudio. Medido: 440 → 432,0 Hz.
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

@@ -119,6 +119,7 @@ json AudioEngine::monitoringDevices() {
 }
 
 static const struct { const char *filter; const char *name; } kPlugins[] = {
+    {"wtv_pitch_filter", "Afinação 432 Hz (pitch)"},
     {"noise_suppress_filter", "Supressão de ruído (RNNoise)"}, {"noise_gate_filter", "Noise gate"},
     {"compressor_filter", "Compressor"}, {"limiter_filter", "Limitador"}, {"expander_filter", "Expander"},
     {"upward_compressor_filter", "Compressor ascendente"}, {"basic_eq_filter", "Equalizador 3 bandas"}, {"gain_filter", "Ganho"},
@@ -126,7 +127,7 @@ static const struct { const char *filter; const char *name; } kPlugins[] = {
 
 json AudioEngine::catalogue() {
     json out = json::array();
-    for (auto &p : kPlugins) if (obs_get_latest_input_type_id(p.filter) || obs_is_source_configurable(p.filter))
+    for (auto &p : kPlugins) if (obs_get_latest_input_type_id(p.filter) || obs_is_source_configurable(p.filter) || std::string(p.filter) == "wtv_pitch_filter")
         out.push_back({{"id", std::string("obs:") + p.filter}, {"name", p.name}, {"manufacturer", "OBS"}});
     return out;
 }
