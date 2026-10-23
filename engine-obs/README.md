@@ -15,6 +15,9 @@ src/PreviewOutput.*  saída libobs própria (OBS_OUTPUT_ENCODED) que entrega os 
                      Annex B → AVCC, avcC a cada keyframe
 src/ControlServer.*  civetweb: HTTP (UI, /api/session, /api/health) + WebSockets de controlo e preview
 src/Commands.*       despacho dos métodos JSON-RPC
+src/NDI.*            NDI sobre o shim `src/cndi` (libndi por dlopen, D17): fonte `wtv_ndi_source` (BGRA assíncrono + áudio
+                     float planar, modo low bandwidth), saída `wtv_ndi_output` (raw BGRA + áudio do barramento NDI),
+                     descoberta de fontes (devices.ndiSources, actualizada de 5 em 5 s e em devices.refresh)
 src/AudioEngine.*    VU por fonte (obs_volmeter, true peak) e por barramento (callbacks das tracks 1–3 = Master/A/B),
                      ganho, pan, atraso, mute, solo, AFV (fonte fora do ecrã na cena Program quando desligado),
                      barramentos por fonte (máscara de tracks), monitorização por barramento, filtros da libobs
@@ -41,6 +44,12 @@ gravação mp4, overlays 1–4 no Program (verificado em frame gravado), RTMP pa
 SRT em loopback entre a saída e a entrada do próprio motor (o ffmpeg do Homebrew não tem libsrt).
 Nota: fontes de rede (ffmpeg_source) levam `restart_on_activate=false` para correrem sem estar em Program.
 Áudio verificado com um clip de tom: VU por fonte e barramento, ganho −20 dB, bus A/Master, AFV, mute, RNNoise,
-barramento das saídas (audio.setOutputBus, só com saídas paradas). Por fazer: NDI, parâmetros dos filtros (sem janela própria),
+barramento das saídas (audio.setOutputBus, só com saídas paradas). NDI verificado em loopback nesta máquina: saída live, fonte descoberta, entrada live, uma passagem mantém as cores
+(±10 níveis, codec SpeedHQ). Atenção nos testes: pôr a entrada NDI em Program enquanto a saída NDI envia o Program cria
+um loop de vídeo que escurece as cores a cada volta; não é defeito do motor. O runtime vem da cópia dentro do plugin DAL
+da NewTek (ver docs/AMBIENTE.md) ou de `WTV_NDI_PATH`. OMT (Open Media Transport, MIT): a libomt é um wrapper C sobre
+um binário .NET pré-compilado (libomt + libvmx .dylib); fica para carregar por dlopen como o NDI quando houver release
+estável para macOS arm64.
+Por fazer: parâmetros dos filtros (sem janela própria),
 ganho Master,
 projector, token/cookie fora de `--dev`, engine.json para o Electron, empacotamento em `WTV Engine.app`.

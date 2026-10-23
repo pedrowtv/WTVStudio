@@ -4,6 +4,7 @@
 #include "ObsRuntime.h"
 #include "Outputs.h"
 #include "AudioEngine.h"
+#include "NDI.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -40,12 +41,15 @@ int main(int argc, char **argv) {
     ObsRuntime rt;
     if (!rt.start(oc)) { fprintf(stderr, "libobs não arrancou\n"); return 1; }
     PreviewOutput::registerType();
+    NDI::load();
+    NDI::registerTypes();
 
     Switcher sw;
     if (!sw.init(oc.width, oc.height, 1280, 720)) { fprintf(stderr, "switcher não inicializou\n"); return 1; }
 
     StateStore store(defaultState(ENGINE_VERSION, sc.bind + ":" + std::to_string(sc.port)));
     Outputs outputs(store, rt);
+    outputs.setNdiAvailable(NDI::available());
     AudioEngine audio;
     audio.start();
     Commands cmd(store, sw, rt, outputs, audio, ENGINE_VERSION);
@@ -71,6 +75,7 @@ int main(int argc, char **argv) {
     while (!g_stop && !cmd.shutdownRequested) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (++tick % 5 == 0) cmd.tickMedia();
+        if (tick % 50 == 0 && NDI::available()) { json ndi = NDI::discover(0); store.mutate([&](json &s) { s["devices"]["ndiSources"] = ndi; }); }
         if (server.hasPreviewClients()) server.sendMeters(audio.metersFrame(store.state()["inputOrder"]));
     }
     fprintf(stderr, "a encerrar\n");
@@ -78,6 +83,7 @@ int main(int argc, char **argv) {
     outputs.shutdown();
     server.stop();
     audio.shutdown();
+    NDI::shutdown();
     sw.shutdown();
     rt.stop();
     return 0;

@@ -61,19 +61,22 @@ void Outputs::onStop(void *d, calldata_t *cd) {
 }
 
 std::string Outputs::add(const std::string &kind, const std::string &name, const json &c, std::string &error) {
-    if (kind != "rtmp" && kind != "srt") { error = "CAPABILITY_MISSING"; return ""; }
+    if (kind != "rtmp" && kind != "srt" && kind != "ndi") { error = "CAPABILITY_MISSING"; return ""; }
+    if (kind == "ndi" && !ndiAvailable_) { error = "CAPABILITY_MISSING"; return ""; }
     std::string url = c.value("url", "");
     if (kind == "srt" && url.rfind("srt://", 0) != 0) { error = "INVALID_PARAMS"; return ""; }
     std::string id = newId();
     {
         std::lock_guard l(m_);
         Entry e; e.kind = kind; e.url = url; e.key = c.value("streamKey", ""); e.latencyMs = c.value("latencyMs", 120);
+        e.ndiName = c.value("ndiName", "WTV Studio");
         outputs_[id] = e;
     }
     store_.mutate([&](json &s) {
         json cfg = {{"url", url}};
         if (kind == "rtmp") cfg["hasStreamKey"] = !c.value("streamKey", "").empty();
         if (kind == "srt") cfg["latencyMs"] = c.value("latencyMs", 120);
+        if (kind == "ndi") cfg["ndiName"] = c.value("ndiName", "WTV Studio");
         s["outputs"][id] = {{"id", id}, {"kind", kind}, {"name", name.empty() ? kind : name}, {"status", "stopped"},
                             {"profileId", "default"}, {"config", cfg}, {"autoRestart", false}};
     });
@@ -89,6 +92,7 @@ bool Outputs::update(const std::string &id, const json &p) {
         if (c.contains("url")) it->second.url = c["url"];
         if (c.contains("streamKey") && !c["streamKey"].get<std::string>().empty()) it->second.key = c["streamKey"];
         if (c.contains("latencyMs")) it->second.latencyMs = c["latencyMs"];
+        if (c.contains("ndiName")) it->second.ndiName = c["ndiName"];
     }
     store_.mutate([&](json &s) {
         json &o = s["outputs"][id];
@@ -99,6 +103,7 @@ bool Outputs::update(const std::string &id, const json &p) {
             if (c.contains("url")) o["config"]["url"] = c["url"];
             if (c.contains("streamKey")) o["config"]["hasStreamKey"] = !it->second.key.empty();
             if (c.contains("latencyMs")) o["config"]["latencyMs"] = c["latencyMs"];
+            if (c.contains("ndiName")) o["config"]["ndiName"] = c["ndiName"];
         }
     });
     return true;
@@ -123,9 +128,24 @@ bool Outputs::start(const std::string &id, std::string &error) {
     if (it == outputs_.end()) { error = "OUTPUT_NOT_FOUND"; return false; }
     Entry &e = it->second;
     if (e.output && obs_output_active(e.output)) { error = "ALREADY_RUNNING"; return false; }
-    if (!ensureEncoders()) { error = "ENCODER_BUDGET"; return false; }
     if (e.output) { obs_output_release(e.output); e.output = nullptr; }
     if (e.service) { obs_service_release(e.service); e.service = nullptr; }
+    if (e.kind == "ndi") {
+        obs_data_t *os = obs_data_create();
+        obs_data_set_string(os, "ndi_name", e.ndiName.c_str());
+        e.output = obs_output_create("wtv_ndi_output", id.c_str(), os, nullptr);
+        obs_data_release(os);
+        if (!e.output) { error = "DEVICE_UNAVAILABLE"; return false; }
+        obs_output_set_mixer(e.output, (size_t)ndiMixerIdx_);
+        if (!ctx_.count(id)) ctx_[id] = new SignalCtx{this, id};
+        signal_handler_t *sh = obs_output_get_signal_handler(e.output);
+        signal_handler_connect(sh, "start", onStart, ctx_[id]);
+        signal_handler_connect(sh, "stop", onStop, ctx_[id]);
+        setStatus(id, "starting");
+        if (!obs_output_start(e.output)) { const char *le = obs_output_get_last_error(e.output); setStatus(id, "error", le ? le : "falha ao iniciar"); error = "DEVICE_UNAVAILABLE"; return false; }
+        return true;
+    }
+    if (!ensureEncoders()) { error = "ENCODER_BUDGET"; return false; }
     std::string server = e.url;
     if (e.kind == "srt" && server.find("latency=") == std::string::npos)
         server += (server.find('?') == std::string::npos ? "?" : "&") + std::string("latency=") + std::to_string(e.latencyMs * 1000);
@@ -214,6 +234,8 @@ void Outputs::shutdown() {
     ctx_.clear();
     if (video_) { obs_encoder_release(video_); obs_encoder_release(audio_); video_ = audio_ = nullptr; }
 }
+
+void Outputs::setNdiBus(int idx) { std::lock_guard l(m_); ndiMixerIdx_ = idx; for (auto &[id, e] : outputs_) if (e.kind == "ndi" && e.output) obs_output_set_mixer(e.output, (size_t)idx); }
 
 bool Outputs::setStreamBus(int idx, std::string &error) {
     std::lock_guard l(m_);

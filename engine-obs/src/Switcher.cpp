@@ -16,6 +16,8 @@ bool Switcher::init(int baseW, int baseH, int mvW, int mvH) {
         obs_source_t *t = obs_source_create_private(k, k, nullptr);
         if (!t) { fprintf(stderr, "transição %s indisponível\n", k); return false; }
         signal_handler_connect(obs_source_get_signal_handler(t), "transition_stop", transitionStopped, this);
+        obs_transition_set_scale_type(t, OBS_TRANSITION_SCALE_ASPECT); // fonte ajustada ao raster, centrada
+        obs_transition_set_alignment(t, OBS_ALIGN_CENTER);
         transitions_[k] = t;
     }
     current_ = transitions_["cut_transition"];
@@ -128,6 +130,10 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
         obsId = "screen_capture";
         obs_data_set_int(s, "type", 0);
         obs_data_set_bool(s, "show_cursor", c.value("showCursor", true));
+    } else if (kind == "ndi") {
+        obsId = "wtv_ndi_source";
+        obs_data_set_string(s, "source_name", c.value("sourceName", "").c_str());
+        obs_data_set_bool(s, "low_bandwidth", c.value("bandwidth", "highest") == "lowest");
     } else {
         obs_data_release(s);
         error = "CAPABILITY_MISSING";
@@ -158,6 +164,9 @@ void Switcher::updateInput(const std::string &id, const std::string &kind, const
         std::string text = c.value("template", "");
         if (c.contains("fields") && c["fields"].contains("text")) text = c["fields"]["text"].get<std::string>();
         obs_data_set_string(s, "text", text.c_str());
+    } else if (kind == "ndi") {
+        if (c.contains("sourceName")) obs_data_set_string(s, "source_name", c["sourceName"].get<std::string>().c_str());
+        if (c.contains("bandwidth")) obs_data_set_bool(s, "low_bandwidth", c["bandwidth"] == "lowest");
     }
     obs_source_update(src, s);
     obs_data_release(s);

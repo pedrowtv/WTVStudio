@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include "NDI.h"
 #include <chrono>
 #include <ctime>
 #include <random>
@@ -18,7 +19,7 @@ static std::string nowIso() {
 
 Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
     : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
-    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); });
+    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["ndiSources"] = NDI::discover(0); });
 }
 
 void Commands::applyAudio(const std::string &only) {
@@ -104,7 +105,7 @@ void Commands::tickMedia() {
 json Commands::dispatch(const std::string &method, const json &p) {
     if (method == "session.hello") {
         return {{"protocolVersion", 1}, {"engineVersion", version_},
-                {"capabilities", {{"ndi", false}, {"srt", true}, {"decklink", false}, {"metalRuntimeShaders", false}}},
+                {"capabilities", {{"ndi", NDI::available()}, {"srt", true}, {"decklink", false}, {"metalRuntimeShaders", false}}},
                 {"snapshot", store_.snapshot()}};
     }
     if (method == "state.resync") {
@@ -126,7 +127,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         std::string id = newId("in_"), err;
         int rw = s["project"]["raster"]["width"], rh = s["project"]["raster"]["height"];
         if (!sw_.addInput(id, kind, config, name, rw, rh, err)) throw RpcError{err, "não foi possível criar a fonte"};
-        bool hasAudio = kind == "media" || kind == "camera" || kind == "srt";
+        bool hasAudio = kind == "media" || kind == "camera" || kind == "srt" || kind == "ndi";
         store_.mutate([&](json &st) {
             json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" ? "live" : "starting"},
                        {"latencyFrames", 0}, {"videoDelayFrames", 0}, {"fit", "fit"},
@@ -316,6 +317,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         int idx = bus == "a" ? 1 : bus == "b" ? 2 : 0;
         std::string err;
         if (which == "stream" && !out_.setStreamBus(idx, err)) throw RpcError{err, "parar as saídas antes de mudar o barramento"};
+        if (which == "ndi") out_.setNdiBus(idx);
         store_.mutate([&](json &st) { st["audio"]["outputBus"][which] = bus; });
         return json::object();
     }
@@ -366,7 +368,12 @@ json Commands::dispatch(const std::string &method, const json &p) {
         store_.mutate([&](json &st) { st["project"]["raster"] = {{"width", w}, {"height", h}, {"fps", fps}}; });
         return json::object();
     }
-    if (method == "preview.keyframe" || method == "devices.refresh" || method == "projector.set" || method == "project.save" || method == "project.load") {
+    if (method == "devices.refresh") {
+        json ndi = NDI::discover(1500), aout = audio_.monitoringDevices();
+        store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; });
+        return json::object();
+    }
+    if (method == "preview.keyframe" || method == "projector.set" || method == "project.save" || method == "project.load") {
         return json::object();
     }
     if (method == "project.list") return {{"projects", json::array()}};

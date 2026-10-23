@@ -20,9 +20,11 @@ public:
     void stopRecording();
     bool anyActive();
     bool setStreamBus(int mixerIdx, std::string &error); // 0 Master, 1 A, 2 B; só com saídas paradas
+    void setNdiBus(int mixerIdx);                       // aplica em directo às saídas NDI
+    void setNdiAvailable(bool on) { ndiAvailable_ = on; }
 
 private:
-    struct Entry { std::string kind, url, key; int latencyMs = 120; obs_output_t *output = nullptr; obs_service_t *service = nullptr; };
+    struct Entry { std::string kind, url, key, ndiName; int latencyMs = 120; obs_output_t *output = nullptr; obs_service_t *service = nullptr; };
     bool ensureEncoders();
     void releaseEncodersIfIdle();
     void setStatus(const std::string &id, const std::string &status, const std::string &code = "");
@@ -39,5 +41,6 @@ private:
     std::map<std::string, SignalCtx *> ctx_;
     obs_encoder_t *video_ = nullptr, *audio_ = nullptr;
     obs_output_t *rec_ = nullptr;
-    int mixerIdx_ = 0;
+    int mixerIdx_ = 0, ndiMixerIdx_ = 0;
+    bool ndiAvailable_ = false;
 };
