@@ -3,7 +3,7 @@
 // a interface é carregada do próprio motor (mesma origem: cookies e WebCodecs funcionam).
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -105,7 +105,14 @@ async function launchEngine(): Promise<EngineLocation> {
   return { url: `http://127.0.0.1:${DEFAULT_PORT}`, token: null, source: "none" };
 }
 
+const PANEL_SIZE: Record<string, [number, number]> = { audio: [1100, 640], definicoes: [1040, 700], playout: [980, 620], saidas: [760, 600], fontes: [760, 560], overlays: [760, 520] };
 let mainWindow: BrowserWindow | null = null;
+let engineToken: string | null = null;
+function logLine(...parts: unknown[]): void {
+  const line = `${new Date().toISOString()} ${parts.map(String).join(" ")}\n`;
+  console.log(line.trim());
+  try { appendFileSync(join(homedir(), "Library", "Logs", "WTV Studio", "studio.log"), line); } catch { /* sem log */ }
+}
 
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
@@ -143,6 +150,17 @@ async function createWindow(): Promise<void> {
   // UI servida pelo motor; o token vai na query e é trocado por cookie no renderer.
   const url = new URL(loc.url);
   if (loc.token) url.searchParams.set("token", loc.token);
+  engineToken = loc.token;
+  // window.open("?panel=…") a partir da UI abre uma janela normal com o mesmo preload (painéis destacáveis).
+  mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
+    logLine("[panel] window.open", target);
+    const t = new URL(target);
+    if (!t.searchParams.get("panel")) { void shell.openExternal(target); return { action: "deny" }; }
+    const [width, height] = PANEL_SIZE[t.searchParams.get("panel") ?? ""] ?? [800, 600];
+    return { action: "allow", overrideBrowserWindowOptions: { width, height, minWidth: 480, minHeight: 360, backgroundColor: "#121315", webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false } } };
+  });
+  mainWindow.webContents.on("did-create-window", (w) => { w.setMenuBarVisibility(false); logLine("[panel] janela criada", w.getTitle()); });
+  logLine("[main] a carregar", url.origin + url.pathname, "preload", join(__dirname, "../preload/index.mjs"));
   await mainWindow.loadURL(url.toString());
 }
 
@@ -174,6 +192,29 @@ ipcMain.handle("dialog:folder", async (_e, { title }: { title: string }) => {
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
 });
 ipcMain.handle("app:version", () => app.getVersion());
+
+/** Painéis destacáveis: a mesma UI com ?panel=nome numa BrowserWindow normal (move-se para qualquer ecrã). */
+const panelWindows = new Map<string, BrowserWindow>();
+ipcMain.handle("panel:open", async (e, { name, title }: { name: string; title: string }) => {
+  logLine("[panel] abrir", name, "de", e.sender.getURL());
+  const existing = panelWindows.get(name);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return; }
+  const [width, height] = PANEL_SIZE[name] ?? [800, 600];
+  const parentUrl = new URL(e.sender.getURL());
+  const win = new BrowserWindow({
+    width, height, minWidth: 480, minHeight: 360, title: `WTV Studio — ${title}`, backgroundColor: "#121315",
+    webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false },
+  });
+  panelWindows.set(name, win);
+  win.on("closed", () => { logLine("[panel] fechado", name); panelWindows.delete(name); });
+  win.webContents.on("render-process-gone", (_ev, d) => logLine("[panel] renderer caiu", name, d.reason));
+  win.setMenuBarVisibility(false);
+  const url = new URL(parentUrl.origin + parentUrl.pathname);
+  url.searchParams.set("panel", name);
+  if (engineToken) url.searchParams.set("token", engineToken); // a janela nova troca o token por cookie como a principal
+  try { await win.loadURL(url.toString()); logLine("[panel] carregado", url.origin + url.pathname + "?panel=" + name); }
+  catch (err) { logLine("[panel] erro", String(err)); }
+});
 
 app.whenReady().then(async () => {
   await createWindow();

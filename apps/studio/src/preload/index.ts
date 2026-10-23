@@ -10,6 +10,8 @@ const api = {
     ipcRenderer.invoke("dialog:files", { kind, multiple }),
   /** Diálogo nativo de pasta. */
   pickFolder: (title: string): Promise<string | null> => ipcRenderer.invoke("dialog:folder", { title }),
+  /** Abre um painel (audio, definicoes, playout, saidas, fontes, overlays) numa janela própria do sistema. */
+  openPanel: (name: string, title: string): Promise<void> => ipcRenderer.invoke("panel:open", { name, title }),
 };
 
 contextBridge.exposeInMainWorld("wtvDesktop", api);

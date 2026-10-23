@@ -9,6 +9,7 @@ import { TransitionColumn } from "./components/TransitionColumn";
 import { InputStrip } from "./components/InputStrip";
 import { Overlays } from "./components/Overlays";
 import { AudioPanel, OutputsPanel, SettingsPanel, PlayoutPanel, SourcesPanel } from "./components/panels";
+import { DOCK_ORDER, DOCK_TITLES, DockArea, dockChannel, useDocks, type DockName } from "./components/Docks";
 import { askFields, askText, finishPrompt, pickFiles, usePromptHost } from "./dialogs";
 
 const ERROS: Record<string, string> = {
@@ -42,7 +43,47 @@ function Clock() {
 
 const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays", playout: "Playout" };
 
-export function App({ engineUrl, token }: { engineUrl: string; token: string | null }) {
+/** Caixa de texto própria (o Electron não tem window.prompt). */
+function PromptHost({ prompt }: { prompt: NonNullable<ReturnType<typeof usePromptHost>> }) {
+  return (
+        <div className="modal-backdrop" onClick={() => finishPrompt(prompt, null)}>
+          <form
+            className="modal modal-prompt"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              const values: Record<string, string> = {};
+              for (const f of prompt.fields ?? []) values[f.key] = String(data.get(f.key) ?? "");
+              finishPrompt(prompt, values);
+            }}
+          >
+            <header className="modal-head"><strong>{prompt.title}</strong></header>
+            <div className="modal-body">
+              {(prompt.fields ?? []).map((f, i) => (
+                <label key={f.key} className="prompt-field">
+                  <span>{f.label}</span>
+                  <input name={f.key} defaultValue={f.defaultValue ?? ""} autoFocus={i === 0} autoComplete="off" />
+                </label>
+              ))}
+              <div className="buttons prompt-actions">
+                <button type="button" className="btn" onClick={() => finishPrompt(prompt, null)}>Cancelar</button>
+                <button type="submit" className="btn btn-sel">OK</button>
+              </div>
+            </div>
+          </form>
+        </div>
+  );
+}
+
+/** Abre um painel em janela própria (Electron) ou numa janela do browser (fallback). */
+function openPanelWindow(name: Exclude<Modal, null>): void {
+  const title = TITULOS[name];
+  if (window.wtvDesktop?.openPanel) { void window.wtvDesktop.openPanel(name, title); return; }
+  window.open(`${location.origin}${location.pathname}?panel=${name}`, `wtv-${name}`, "width=1000,height=640,title=" + encodeURIComponent(title));
+}
+
+export function App({ engineUrl, token, panel }: { engineUrl: string; token: string | null; panel?: string | null }) {
   const connection = useStore((s) => s.connection);
   const engine = useStore((s) => s.engine);
   const client = useStore((s) => s.client);
@@ -51,6 +92,8 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
   const [meters, setMeters] = useState<MeterReading[]>([]);
   const [previewStatus, setPreviewStatus] = useState("a ligar…");
   const prompt = usePromptHost();
+  const docks = useDocks();
+  const [panelsMenu, setPanelsMenu] = useState(false);
 
   const run = useCallback(
     async (method: string, params?: unknown): Promise<unknown> => {
@@ -87,6 +130,37 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Janela flutuante: anuncia-se à janela principal e avisa quando fecha (reencaixe automático).
+  useEffect(() => {
+    if (!panel || !dockChannel) return;
+    const ch = dockChannel;
+    document.title = `WTV Studio — ${TITULOS[panel as Exclude<Modal, null>] ?? panel}`;
+    ch.postMessage({ type: "floating", name: panel });
+    const bye = () => ch.postMessage({ type: "closed", name: panel });
+    window.addEventListener("pagehide", bye);
+    return () => window.removeEventListener("pagehide", bye);
+  }, [panel]);
+
+  // Modo janela destacada: só o painel pedido, a ocupar toda a janela.
+  if (panel) {
+    const name = panel as Exclude<Modal, null>;
+    return (
+      <div className="panel-window">
+        {prompt && <PromptHost prompt={prompt} />}
+        <header className="panel-window-head"><strong>{TITULOS[name] ?? panel}</strong><span className="spacer" /><span className={`pill pill-${connection}`}>{connection === "connected" ? "motor ligado" : connection === "connecting" ? "a ligar…" : "sem motor"}</span>{name !== "definicoes" && <button className="btn btn-x" title="Voltar a encaixar na janela principal" onClick={() => window.close()}>⇤ Encaixar</button>}</header>
+        <div className="panel-window-body">
+          {name === "fontes" && <SourcesPanel run={run} />}
+          {name === "audio" && <AudioPanel run={run} meters={meters} />}
+          {name === "saidas" && <OutputsPanel run={run} />}
+          {name === "definicoes" && <SettingsPanel run={run} engineUrl={engineUrl} />}
+          {name === "playout" && <PlayoutPanel run={run} />}
+          {name === "overlays" && <Overlays run={run} />}
+          {!TITULOS[name] && <p className="muted">Painel desconhecido.</p>}
+        </div>
+      </div>
+    );
+  }
 
   const outputs = Object.values(engine?.outputs ?? {});
   const liveOutputs = outputs.filter((o) => o.status === "live").length;
@@ -146,6 +220,19 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
           {liveOutputs > 0 && <span className="pill pill-live">NO AR · {liveOutputs}</span>}
           {engine?.program.ftb && <span className="pill pill-rec">FTB</span>}
           <Clock />
+          <span className="menu-wrap">
+            <button className="btn" onClick={() => setPanelsMenu((v) => !v)}>Painéis ▾</button>
+            {panelsMenu && (
+              <div className="menu" onMouseLeave={() => setPanelsMenu(false)}>
+                {DOCK_ORDER.map((d) => {
+                  const st = docks.state.floating.includes(d) ? "janela própria" : docks.state.hidden.includes(d) ? "oculto" : "encaixado";
+                  return <button key={d} className="menu-item" onClick={() => { setPanelsMenu(false); if (docks.state.floating.includes(d)) docks.float(d); else docks.show(d); }}><span>{docks.state.hidden.includes(d) ? "○" : "●"}</span>{DOCK_TITLES[d]}<span className="muted small">{st}</span></button>;
+                })}
+                <div className="menu-sep" />
+                {DOCK_ORDER.map((d) => <button key={d + "f"} className="menu-item" onClick={() => { setPanelsMenu(false); docks.float(d); }}><span>⧉</span>{DOCK_TITLES[d]} em janela própria</button>)}
+              </div>
+            )}
+          </span>
           <button className="btn" onClick={() => setModal("definicoes")}>Definições</button>
         </div>
       </header>
@@ -163,15 +250,16 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
       <div className="strip-bar">
         <span className="muted small">Fontes ({inputCount}) · clique = Preview · duplo clique = Cut · teclas 1–9, Enter, Espaço, F</span>
         <span className="spacer" />
-        <button className="btn" onClick={() => setModal("audio")}>
+        <button className="btn" onClick={() => docks.show("audio")}>
           🔊 Audio Mixer <span className="mini-meter"><span style={{ width: `${Math.max(0, Math.min(100, ((masterDb + 60) / 60) * 100))}%` }} /></span>
         </button>
       </div>
       <InputStrip run={run} />
+      <DockArea docks={docks} run={run} meters={meters} />
 
       <footer className="bottombar">
         <div className="btn-split">
-          <button className="btn btn-wide" onClick={() => setModal("fontes")}>Adicionar fonte</button>
+          <button className="btn btn-wide" onClick={() => docks.show("fontes")}>Adicionar fonte</button>
           <select
             className="quick-add"
             value=""
@@ -196,18 +284,18 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
           </select>
         </div>
         <div className="btn-split">
-          <button className="btn btn-icon" title="Definições de gravação" onClick={() => setModal("saidas")}>⚙</button>
+          <button className="btn btn-icon" title="Definições de gravação" onClick={() => docks.show("saidas")}>⚙</button>
           <button className={recording ? "btn btn-wide btn-program" : "btn btn-wide"} onClick={() => { if (recording) { if (window.confirm("Parar a gravação?")) void run("record.stop", { txnId: newTxnId() }); } else void run("record.start", { container: "mov", txnId: newTxnId() }); }}>
             {recording ? `● Gravar · ${((engine?.recording.bytes ?? 0) / 1e6).toFixed(0)} MB` : "Gravar"}
           </button>
         </div>
         <div className="btn-split">
-          <button className="btn btn-icon" title="Definições de stream" onClick={() => setModal("saidas")}>⚙</button>
+          <button className="btn btn-icon" title="Definições de stream" onClick={() => docks.show("saidas")}>⚙</button>
           <button
             className={streaming ? "btn btn-wide btn-program" : "btn btn-wide"}
             onClick={() => {
               const rtmp = outputs.filter((o) => o.kind === "rtmp");
-              if (rtmp.length === 0) { setModal("saidas"); return; }
+              if (rtmp.length === 0) { docks.show("saidas"); return; }
               if (streaming) { if (window.confirm("Parar o stream?")) rtmp.filter((o) => o.status !== "stopped").forEach((o) => void run("output.stop", { outputId: o.id, txnId: newTxnId() })); }
               else if (window.confirm(`Iniciar o stream para ${rtmp.length} destino(s): ${rtmp.map((o) => o.name).join(", ")}?`)) rtmp.forEach((o) => void run("output.start", { outputId: o.id, txnId: newTxnId() }));
             }}
@@ -215,9 +303,9 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
             {streaming ? "● Stream" : "Stream"}
           </button>
         </div>
-        <button className="btn btn-wide" onClick={() => setModal("saidas")}>Externo (NDI)</button>
-        <button className="btn btn-wide" onClick={() => setModal("overlays")}>Overlay</button>
-        <button className="btn btn-wide" onClick={() => setModal("playout")}>Playout</button>
+        <button className="btn btn-wide" onClick={() => docks.show("saidas")}>Externo (NDI)</button>
+        <button className="btn btn-wide" onClick={() => docks.show("overlays")}>Overlay</button>
+        <button className="btn btn-wide" onClick={() => docks.show("playout")}>Playout</button>
       </footer>
       <footer className="statusbar">
         <span className="status">
@@ -234,41 +322,15 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
         </span>
       </footer>
 
-      {prompt && (
-        <div className="modal-backdrop" onClick={() => finishPrompt(prompt, null)}>
-          <form
-            className="modal modal-prompt"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              const values: Record<string, string> = {};
-              for (const f of prompt.fields ?? []) values[f.key] = String(data.get(f.key) ?? "");
-              finishPrompt(prompt, values);
-            }}
-          >
-            <header className="modal-head"><strong>{prompt.title}</strong></header>
-            <div className="modal-body">
-              {(prompt.fields ?? []).map((f, i) => (
-                <label key={f.key} className="prompt-field">
-                  <span>{f.label}</span>
-                  <input name={f.key} defaultValue={f.defaultValue ?? ""} autoFocus={i === 0} autoComplete="off" />
-                </label>
-              ))}
-              <div className="buttons prompt-actions">
-                <button type="button" className="btn" onClick={() => finishPrompt(prompt, null)}>Cancelar</button>
-                <button type="submit" className="btn btn-sel">OK</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+      {prompt && <PromptHost prompt={prompt} />}
 
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
           <div className={modal === "definicoes" || modal === "playout" || modal === "audio" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
             <header className="modal-head">
               <strong>{TITULOS[modal]}</strong>
+              <span className="spacer" />
+              <button className="btn btn-icon" title="Destacar numa janela própria (pode ir para outro ecrã)" onClick={() => { openPanelWindow(modal); setModal(null); }}>⧉ Destacar</button>
               <button className="btn btn-icon" onClick={() => setModal(null)}>✕</button>
             </header>
             <div className="modal-body">

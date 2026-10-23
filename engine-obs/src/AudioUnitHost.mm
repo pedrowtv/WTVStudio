@@ -6,7 +6,15 @@
 #include <mutex>
 #include <vector>
 
+/// Fechar a janela só a esconde: destruir a vista do plugin ao fechar faz crash em editores JUCE/WebKit (Prisma EQ Pro).
+@interface WTVAUWindowDelegate : NSObject <NSWindowDelegate>
+@end
+@implementation WTVAUWindowDelegate
+- (BOOL)windowShouldClose:(NSWindow *)w { [w orderOut:nil]; return NO; }
+@end
+
 namespace {
+WTVAUWindowDelegate *g_auDelegate = nil;
 std::string fourcc(UInt32 v) { char s[5] = {(char)(v >> 24), (char)(v >> 16), (char)(v >> 8), (char)v, 0}; return s; }
 UInt32 fromFourcc(const std::string &s) { return s.size() == 4 ? ((UInt32)(uint8_t)s[0] << 24) | ((UInt32)(uint8_t)s[1] << 16) | ((UInt32)(uint8_t)s[2] << 8) | (uint8_t)s[3] : 0; }
 
@@ -200,12 +208,15 @@ void openWindow(obs_source_t *f, const std::string &title) {
         v.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, size.width, size.height) styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable) backing:NSBackingStoreBuffered defer:NO];
         w.title = t; w.releasedWhenClosed = NO; w.contentView = v;
+        if (!g_auDelegate) g_auDelegate = [WTVAUWindowDelegate new];
+        w.delegate = g_auDelegate;
         [w center]; [w makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
         g_windows[f] = w;
     });
 }
 
 void closeWindow(obs_source_t *f) {
-    dispatch_async(dispatch_get_main_queue(), ^{ auto it = g_windows.find(f); if (it != g_windows.end()) { [it->second close]; g_windows.erase(it); } });
+    // Esconde e mantém a janela viva (ver WTVAUWindowDelegate); o AU é destruído depois, com a vista já fora do ecrã.
+    dispatch_async(dispatch_get_main_queue(), ^{ auto it = g_windows.find(f); if (it != g_windows.end()) { [it->second orderOut:nil]; } });
 }
 }

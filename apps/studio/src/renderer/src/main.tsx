@@ -10,6 +10,7 @@ declare global {
     wtvDesktop?: {
       locateEngine: () => Promise<{ url: string; token: string | null; source: string }>;
       appVersion: () => Promise<string>;
+      openPanel?: (name: string, title: string) => Promise<void>;
     };
   }
 }
@@ -18,6 +19,7 @@ async function boot(): Promise<void> {
   let url = `http://127.0.0.1:${DEFAULT_PORT}`;
   let token: string | null = null;
   const kind: "electron" | "browser" = window.wtvDesktop ? "electron" : "browser";
+  const panel = new URLSearchParams(location.search).get("panel");
 
   if (location.protocol.startsWith("http") && !location.port.startsWith("517")) {
     // Servido pelo próprio motor (app empacotada ou browser na LAN): mesma origem.
@@ -27,7 +29,7 @@ async function boot(): Promise<void> {
       // Troca o token por cookie HttpOnly e tira-o do URL visível.
       try {
         await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }), credentials: "same-origin" });
-        history.replaceState(null, "", location.pathname);
+        history.replaceState(null, "", location.pathname + (panel ? `?panel=${panel}` : ""));
       } catch {
         /* sem cookie: continua com o token na query dos WebSockets */
       }
@@ -45,7 +47,7 @@ async function boot(): Promise<void> {
 
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <App engineUrl={url} token={token} />
+      <App engineUrl={url} token={token} panel={panel} />
     </React.StrictMode>,
   );
 }
