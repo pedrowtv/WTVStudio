@@ -75,6 +75,7 @@ export type InputKind =
   | "media"
   | "image"
   | "title"
+  | "playlist"
   | "camera"
   | "screen"
   | "ndi"
@@ -112,6 +113,7 @@ export type InputConfig =
   | MediaConfig
   | ImageConfig
   | TitleConfig
+  | PlaylistConfig
   | CameraConfig
   | ScreenConfig
   | NdiConfig
@@ -133,6 +135,21 @@ export interface ImageConfig {
 export interface TitleConfig {
   template: string;
   fields: Record<string, string>;
+}
+/** Playout: lista de reprodução encadeada; formato compatível com o ffplayout (in/out/duration/source). */
+export interface PlaylistItem {
+  path: string;
+  name: string;
+  in: number;
+  out: number;
+  duration?: number;
+}
+export interface PlaylistConfig {
+  items: PlaylistItem[];
+  index: number;
+  loopList: boolean;
+  channel?: string;
+  date?: string;
 }
 export interface CameraConfig {
   uniqueId: string;

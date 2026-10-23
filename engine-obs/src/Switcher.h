@@ -35,6 +35,9 @@ public:
     void mediaCommand(const std::string &id, const std::string &cmd, const json &p);
     Media mediaInfo(const std::string &id);
     bool hasVideo(const std::string &id);
+    /// Playlist: muda o ficheiro da fonte ffmpeg (reinicia a reprodução).
+    void playlistLoad(const std::string &id, const std::string &path, bool loopFile);
+    std::function<void(const std::string &inputId)> onMediaEnded; // chamado (thread da libobs) quando um ficheiro acaba
     obs_source_t *sourceRef(const std::string &id) { std::lock_guard l(m_); return source(id); } // sem retain: válido enquanto a fonte existir // largura > 0 → a fonte está a produzir imagem
 
     video_t *multiviewVideo() { return mvVideo_; }
@@ -46,6 +49,9 @@ private:
     obs_source_t *transitionFor(const std::string &kind, const json &params);
     void swapTransition(obs_source_t *next);
     static void transitionStopped(void *data, calldata_t *);
+    static void mediaEnded(void *data, calldata_t *);
+    std::mutex mapM_; // só para idBySource_: o sinal media_ended chega com o mutex principal possivelmente preso (obs_source_update junta a thread do ffmpeg)
+    std::map<obs_source_t *, std::string> idBySource_;
 
     std::mutex m_;
     std::map<std::string, obs_source_t *> inputs_;

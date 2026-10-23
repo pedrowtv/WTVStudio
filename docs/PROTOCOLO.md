@@ -237,3 +237,8 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
 - `projector.set` aceita `source` = `"program"`, `"multiview"` ou um `inputId`; `fullscreen` é ignorado no ecrã principal.
 - `project.setEncoding {videoBitrateKbps?, audioBitrateKbps?, keyintSec?, profile?, rateControl?}` altera `project.encoding`
   (codificação de Program partilhada por stream e gravação); recusado com `ALREADY_RUNNING` enquanto houver saídas ou gravação activas.
+- Playout (motor libobs): fonte `kind: "playlist"` com `config {items: [{path, name, in, out, duration?}], index, loopList, channel?, date?}`;
+  comandos `playlist.add {inputId, paths}`, `playlist.remove {inputId, index}`, `playlist.move {inputId, from, to}`, `playlist.jump {inputId, index}`,
+  `playlist.next {inputId}`, `playlist.setLoop {inputId, on}`, `playlist.setItem {inputId, index, in?, out?, name?}`,
+  `playlist.import {inputId, path}` / `playlist.export {inputId, path}` no formato do ffplayout (`channel`, `date`, `program[{in,out,duration,source}]`).
+  Quando um ficheiro acaba (`media_ended`) ou chega ao `out`, passa ao seguinte; o salto ao `in` cai no keyframe anterior (precisão = GOP do ficheiro).

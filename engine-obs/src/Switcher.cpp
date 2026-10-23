@@ -96,6 +96,16 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
         obs_data_set_bool(s, "hw_decode", true);
         obs_data_set_bool(s, "restart_on_activate", false);
         obs_data_set_int(s, "speed_percent", (int)(c.value("speed", 1.0) * 100));
+    } else if (kind == "playlist") {
+        obsId = "ffmpeg_source";
+        obs_data_set_bool(s, "is_local_file", true);
+        std::string first;
+        if (c.contains("items") && c["items"].is_array() && !c["items"].empty()) { int idx = c.value("index", 0); if (idx < 0 || idx >= (int)c["items"].size()) idx = 0; first = c["items"][idx].value("path", ""); }
+        obs_data_set_string(s, "local_file", first.c_str());
+        obs_data_set_bool(s, "looping", false);
+        obs_data_set_bool(s, "hw_decode", true);
+        obs_data_set_bool(s, "restart_on_activate", false);
+        obs_data_set_bool(s, "clear_on_media_end", false);
     } else if (kind == "srt") {
         obsId = "ffmpeg_source";
         obs_data_set_bool(s, "is_local_file", false);
@@ -145,7 +155,28 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
     if (!src) { error = "DEVICE_UNAVAILABLE"; return false; }
     std::lock_guard l(m_);
     inputs_[id] = src;
+    { std::lock_guard lm(mapM_); idBySource_[src] = id; }
+    if (kind == "playlist") signal_handler_connect(obs_source_get_signal_handler(src), "media_ended", mediaEnded, this);
     return true;
+}
+
+void Switcher::mediaEnded(void *data, calldata_t *cd) {
+    auto *self = static_cast<Switcher *>(data);
+    auto *src = static_cast<obs_source_t *>(calldata_ptr(cd, "source"));
+    std::string id;
+    { std::lock_guard l(self->mapM_); auto it = self->idBySource_.find(src); if (it != self->idBySource_.end()) id = it->second; }
+    if (!id.empty() && self->onMediaEnded) self->onMediaEnded(id);
+}
+
+void Switcher::playlistLoad(const std::string &id, const std::string &path, bool loopFile) {
+    std::lock_guard l(m_);
+    obs_source_t *src = source(id);
+    if (!src) return;
+    obs_data_t *s = obs_data_create();
+    obs_data_set_string(s, "local_file", path.c_str());
+    obs_data_set_bool(s, "looping", loopFile);
+    obs_source_update(src, s); // a mudança de local_file já reinicia a reprodução; um restart extra deixava um reset pendente que anulava o seek ao ponto "in"
+    obs_data_release(s);
 }
 
 void Switcher::updateInput(const std::string &id, const std::string &kind, const json &c) {
@@ -179,6 +210,7 @@ void Switcher::removeInput(const std::string &id) {
     if (it == inputs_.end()) return;
     obs_source_t *src = it->second;
     inputs_.erase(it);
+    { std::lock_guard lm(mapM_); idBySource_.erase(src); }
     if (audioItems_.count(id)) { obs_sceneitem_remove(audioItems_[id]); audioItems_.erase(id); }
     if (obs_transition_get_active_source(current_) == src) obs_transition_set(current_, nullptr);
     obs_source_remove(src);

@@ -8,7 +8,7 @@ import { Monitor } from "./components/Monitor";
 import { TransitionColumn } from "./components/TransitionColumn";
 import { InputStrip } from "./components/InputStrip";
 import { Overlays } from "./components/Overlays";
-import { AudioPanel, OutputsPanel, SettingsPanel, SourcesPanel } from "./components/panels";
+import { AudioPanel, OutputsPanel, SettingsPanel, PlayoutPanel, SourcesPanel } from "./components/panels";
 import { askFields, askText, finishPrompt, pickFiles, usePromptHost } from "./dialogs";
 
 const ERROS: Record<string, string> = {
@@ -32,8 +32,8 @@ function traduz(e: unknown): string {
   return String(e);
 }
 
-type Modal = null | "fontes" | "audio" | "saidas" | "definicoes" | "overlays";
-const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays" };
+type Modal = null | "fontes" | "audio" | "saidas" | "definicoes" | "overlays" | "playout";
+const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays", playout: "Playout" };
 
 export function App({ engineUrl, token }: { engineUrl: string; token: string | null }) {
   const connection = useStore((s) => s.connection);
@@ -209,6 +209,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
         </div>
         <button className="btn btn-wide" onClick={() => setModal("saidas")}>Externo (NDI)</button>
         <button className="btn btn-wide" onClick={() => setModal("overlays")}>Overlay</button>
+        <button className="btn btn-wide" onClick={() => setModal("playout")}>Playout</button>
         <span className="spacer" />
         <span className="status">
           <strong className="status-format">{engine ? `${engine.project.raster.height}p${engine.project.raster.fps}` : "—"}</strong>
@@ -250,7 +251,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
 
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
-          <div className={modal === "definicoes" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
+          <div className={modal === "definicoes" || modal === "playout" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
             <header className="modal-head">
               <strong>{TITULOS[modal]}</strong>
               <button className="btn btn-icon" onClick={() => setModal(null)}>✕</button>
@@ -260,6 +261,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
               {modal === "audio" && <AudioPanel run={run} meters={meters} />}
               {modal === "saidas" && <OutputsPanel run={run} />}
               {modal === "definicoes" && <SettingsPanel run={run} engineUrl={engineUrl} />}
+              {modal === "playout" && <PlayoutPanel run={run} />}
               {modal === "overlays" && <Overlays run={run} />}
             </div>
           </div>

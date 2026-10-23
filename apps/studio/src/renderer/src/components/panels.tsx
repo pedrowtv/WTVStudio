@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { MeterReading } from "@wtv/protocol";
+import type { MeterReading, PlaylistConfig } from "@wtv/protocol";
 import { useStore } from "../store";
 import { newTxnId } from "../rpc";
 import { askFields, askText, pickFiles, pickFolder } from "../dialogs";
@@ -498,6 +498,76 @@ export function SettingsPanel({ run, engineUrl }: { run: Run; engineUrl: string 
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+const fmtTime = (t: number) => { const s = Math.max(0, Math.floor(t)); return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+
+/** Playout: lista de reprodução encadeada (uma fonte "playlist"), com pontos in/out e importação ffplayout. */
+export function PlayoutPanel({ run }: { run: Run }) {
+  const engine = useStore((s) => s.engine);
+  if (!engine) return null;
+  const lists = engine.inputOrder.filter((id) => engine.inputs[id]?.kind === "playlist");
+  const [sel, setSel] = useState<string | null>(null);
+  const id = sel && lists.includes(sel) ? sel : lists[0] ?? null;
+  const input = id ? engine.inputs[id] : null;
+  const cfg = (input?.config ?? { items: [], index: 0, loopList: true }) as PlaylistConfig;
+  const media = input?.media;
+  const total = cfg.items.reduce((acc, it) => acc + ((it.out > 0 ? it.out : it.duration ?? 0) - it.in), 0);
+  const remaining = media && cfg.items[cfg.index] ? ((cfg.items[cfg.index].out > 0 ? cfg.items[cfg.index].out : media.durationSeconds) - media.positionSeconds) : 0;
+  const onAir = id && (engine.program.inputId === id);
+  return (
+    <div className="playout">
+      <div className="buttons">
+        {lists.map((l) => <button key={l} className={l === id ? "btn btn-sel" : "btn"} onClick={() => setSel(l)}>{engine.inputs[l].name}</button>)}
+        <button className="btn" onClick={async () => { const name = await askText("Novo Playout", "Nome", "Playout"); if (name) void run("input.add", { kind: "playlist", name, config: { items: [], index: 0, loopList: true } }); }}>+ Novo Playout</button>
+      </div>
+      {!input && <p className="hint">Um Playout é uma fonte normal (aparece nas miniaturas, vai para Preview/Program) que toca uma lista de ficheiros em sequência, como uma grelha de emissão. Crie um e adicione ficheiros.</p>}
+      {input && id && (
+        <>
+          <div className="playout-now">
+            <span className={onAir ? "tally on" : "tally"}>{onAir ? "NO AR" : "fora do ar"}</span>
+            <strong>{cfg.items[cfg.index]?.name ?? "—"}</strong>
+            <span className="muted">{media ? `${fmtTime(media.positionSeconds)} / ${fmtTime(cfg.items[cfg.index]?.out || media.durationSeconds)}` : ""}</span>
+            <span className={remaining > 0 && remaining < 10 ? "erro" : "muted"}>restam {fmtTime(remaining)}</span>
+            <span className="spacer" />
+            <button className="btn btn-x" onClick={() => run("media.play", { inputId: id })}>▶</button>
+            <button className="btn btn-x" onClick={() => run("media.pause", { inputId: id })}>⏸</button>
+            <button className="btn btn-x" title="Seguinte" onClick={() => run("playlist.next", { inputId: id })}>⏭</button>
+            <button className={cfg.loopList ? "btn btn-x btn-sel" : "btn btn-x"} title="Repetir a lista no fim" onClick={() => run("playlist.setLoop", { inputId: id, on: !cfg.loopList })}>⟲ lista</button>
+          </div>
+          <table className="matrix playout-list">
+            <thead><tr><th>#</th><th>Ficheiro</th><th>In</th><th>Out</th><th>Duração</th><th></th></tr></thead>
+            <tbody>
+              {cfg.items.map((it, i) => (
+                <tr key={i} className={i === cfg.index ? "current" : ""} onDoubleClick={() => run("playlist.jump", { inputId: id, index: i })}>
+                  <td>{i + 1}</td>
+                  <td title={it.path}>{i === cfg.index ? "▶ " : ""}{it.name}</td>
+                  <td><input className="tiny" type="number" min={0} step={0.5} value={it.in} onChange={(e) => run("playlist.setItem", { inputId: id, index: i, in: Number(e.target.value) })} /></td>
+                  <td><input className="tiny" type="number" min={0} step={0.5} value={it.out} title="0 = até ao fim" onChange={(e) => run("playlist.setItem", { inputId: id, index: i, out: Number(e.target.value) })} /></td>
+                  <td className="muted">{it.duration ? fmtTime(it.duration) : "—"}</td>
+                  <td>
+                    <button className="btn btn-x" title="Tocar já" onClick={() => run("playlist.jump", { inputId: id, index: i })}>▶</button>
+                    <button className="btn btn-x" title="Subir" disabled={i === 0} onClick={() => run("playlist.move", { inputId: id, from: i, to: i - 1 })}>↑</button>
+                    <button className="btn btn-x" title="Descer" disabled={i === cfg.items.length - 1} onClick={() => run("playlist.move", { inputId: id, from: i, to: i + 1 })}>↓</button>
+                    <button className="btn btn-x" title="Remover" onClick={() => run("playlist.remove", { inputId: id, index: i })}>×</button>
+                  </td>
+                </tr>
+              ))}
+              {cfg.items.length === 0 && <tr><td colSpan={6} className="muted">Lista vazia.</td></tr>}
+            </tbody>
+          </table>
+          <div className="buttons">
+            <button className="btn" onClick={async () => { const paths = await pickFiles("video"); if (paths.length) void run("playlist.add", { inputId: id, paths }); }}>+ Ficheiros…</button>
+            <button className="btn" onClick={async () => { const paths = await pickFiles("any", false); if (paths[0]) void run("playlist.import", { inputId: id, path: paths[0] }); }}>Importar playlist (ffplayout JSON)…</button>
+            <button className="btn" onClick={async () => { const folder = await pickFolder("Pasta para exportar"); if (folder) void run("playlist.export", { inputId: id, path: `${folder}/${cfg.date || new Date().toISOString().slice(0, 10)}.json` }); }}>Exportar…</button>
+            <span className="spacer" />
+            <span className="muted small">{cfg.items.length} item(s) · {fmtTime(total)} no total</span>
+          </div>
+          <p className="hint">Formato de playlist igual ao do ffplayout: cada item tem in, out (0 = fim do ficheiro) e source. Quando um ficheiro acaba ou chega ao out, passa ao seguinte; com "⟲ lista" volta ao início.</p>
+        </>
+      )}
     </div>
   );
 }

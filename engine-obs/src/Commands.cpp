@@ -5,6 +5,7 @@
 #include <ctime>
 #include <random>
 #include <thread>
+#include <fstream>
 
 static std::string newId(const char *prefix) {
     static std::mt19937_64 rng{std::random_device{}()};
@@ -70,6 +71,14 @@ static void swapPvwPgm(json &s) {
     s["program"]["transition"] = nullptr;
 }
 
+void Commands::onMediaEnded(const std::string &id) {
+    std::thread([this, id] {
+        json s = store_.state();
+        if (!s["inputs"].contains(id) || s["inputs"][id].value("kind", "") != "playlist") return;
+        try { dispatch("playlist.next", json{{"inputId", id}}); } catch (...) {}
+    }).detach();
+}
+
 void Commands::onTransitionDone() {
     std::thread([this] {
         store_.mutate([](json &s) { if (!s["program"]["transition"].is_null()) swapPvwPgm(s); });
@@ -82,7 +91,7 @@ void Commands::tickMedia() {
     std::vector<std::string> mediaIds, liveIds;
     for (auto &[id, in] : s["inputs"].items()) {
         std::string kind = in.value("kind", "");
-        if (kind == "media") mediaIds.push_back(id);
+        if (kind == "media" || kind == "playlist") mediaIds.push_back(id);
         else if (kind != "synthetic" && kind != "title") liveIds.push_back(id);
     }
     if (mediaIds.empty() && liveIds.empty()) return;
@@ -90,6 +99,7 @@ void Commands::tickMedia() {
     for (auto &id : mediaIds) info[id] = sw_.mediaInfo(id);
     std::map<std::string, bool> live;
     for (auto &id : liveIds) live[id] = sw_.hasVideo(id);
+    std::vector<std::string> outPointReached;
     store_.mutate([&](json &st) {
         for (auto &[id, m] : info) {
             if (!st["inputs"].contains(id)) continue;
@@ -98,9 +108,19 @@ void Commands::tickMedia() {
             media["positionSeconds"] = m.positionSeconds;
             media["state"] = m.state;
             st["inputs"][id]["status"] = m.durationSeconds > 0 ? "live" : "starting";
+            if (st["inputs"][id].value("kind", "") == "playlist") {
+                json &cfg = st["inputs"][id]["config"]; int idx = cfg.value("index", 0);
+                if (cfg.contains("items") && idx >= 0 && idx < (int)cfg["items"].size()) {
+                    json &it = cfg["items"][idx];
+                    if (m.durationSeconds > 0 && it.value("duration", 0.0) <= 0) it["duration"] = m.durationSeconds;
+                    double out = it.value("out", 0.0);
+                    if (out > 0 && m.state == "playing" && m.positionSeconds >= out) outPointReached.push_back(id);
+                }
+            }
         }
         for (auto &[id, ok] : live) if (st["inputs"].contains(id)) st["inputs"][id]["status"] = ok ? "live" : "noSignal";
     });
+    for (auto &id : outPointReached) { try { dispatch("playlist.next", json{{"inputId", id}}); } catch (...) {} }
 }
 
 json Commands::dispatch(const std::string &method, const json &p) {
@@ -122,19 +142,20 @@ json Commands::dispatch(const std::string &method, const json &p) {
         if (name.empty()) {
             if (kind == "media" || kind == "image") { std::string path = config.value("path", ""); name = path.substr(path.find_last_of('/') + 1); }
             else if (kind == "synthetic") name = config.value("pattern", "colour") == "bars" ? "Barras" : "Cor";
-            else if (kind == "title") name = "Título"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
+            else if (kind == "title") name = "Título"; else if (kind == "playlist") name = "Playout"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
             else name = kind;
         }
         std::string id = newId("in_"), err;
         int rw = s["project"]["raster"]["width"], rh = s["project"]["raster"]["height"];
         if (!sw_.addInput(id, kind, config, name, rw, rh, err)) throw RpcError{err, "não foi possível criar a fonte"};
-        bool hasAudio = kind == "media" || kind == "camera" || kind == "srt" || kind == "ndi";
+        bool hasAudio = kind == "media" || kind == "playlist" || kind == "camera" || kind == "srt" || kind == "ndi";
         store_.mutate([&](json &st) {
             json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" ? "live" : "starting"},
                        {"latencyFrames", 0}, {"videoDelayFrames", 0}, {"fit", "fit"},
                        {"colour", {{"brightness", 0}, {"contrast", 1}, {"saturation", 1}}}, {"lowBandwidth", false},
                        {"config", config}, {"hasAudio", hasAudio}};
-            if (kind == "media") in["media"] = {{"durationSeconds", 0}, {"positionSeconds", 0}, {"state", "stopped"}, {"loop", config.value("loop", false)}};
+            if (kind == "media" || kind == "playlist") in["media"] = {{"durationSeconds", 0}, {"positionSeconds", 0}, {"state", "stopped"}, {"loop", config.value("loop", false)}};
+            if (kind == "playlist") { if (!in["config"].contains("items")) in["config"]["items"] = json::array(); if (!in["config"].contains("index")) in["config"]["index"] = 0; if (!in["config"].contains("loopList")) in["config"]["loopList"] = true; }
             st["inputs"][id] = in;
             st["inputOrder"].push_back(id);
             st["audio"]["inputs"][id] = defaultAudioChannel();
@@ -161,6 +182,93 @@ json Commands::dispatch(const std::string &method, const json &p) {
             refreshMultiview(st);
         });
         if (p.contains("config")) sw_.updateInput(id, kind, p["config"]);
+        return json::object();
+    }
+    if (method == "playlist.import") {
+        // Formato do ffplayout (GPL-3, Rust): {"channel","date","program":[{"in","out","duration","source"}]}; só se adopta o formato, não o código.
+        std::string id = requireInput(p);
+        std::ifstream f(p.value("path", ""));
+        if (!f) throw RpcError{"INVALID_PARAMS", "ficheiro de playlist ilegível"};
+        json pl = json::parse(f, nullptr, false);
+        if (pl.is_discarded() || !pl.contains("program") || !pl["program"].is_array()) throw RpcError{"INVALID_PARAMS", "playlist sem 'program' (formato ffplayout)"};
+        json items = json::array();
+        for (auto &e : pl["program"]) {
+            std::string src = e.value("source", ""); if (src.empty()) continue;
+            items.push_back({{"path", src}, {"name", src.substr(src.find_last_of('/') + 1)}, {"in", e.value("in", 0.0)}, {"out", e.value("out", 0.0)}, {"duration", e.value("duration", 0.0)}});
+        }
+        store_.mutate([&](json &st) { json &cfg = st["inputs"][id]["config"]; cfg["items"] = items; cfg["index"] = 0; cfg["channel"] = pl.value("channel", ""); cfg["date"] = pl.value("date", ""); });
+        if (!items.empty()) dispatch("playlist.jump", json{{"inputId", id}, {"index", 0}});
+        return {{"count", items.size()}};
+    }
+    if (method == "playlist.export") {
+        std::string id = requireInput(p);
+        json s = store_.state(); json cfg = s["inputs"][id]["config"];
+        json program = json::array();
+        for (auto &it : cfg.value("items", json::array())) program.push_back({{"in", it.value("in", 0.0)}, {"out", it.value("out", 0.0)}, {"duration", it.value("duration", it.value("out", 0.0))}, {"source", it.value("path", "")}});
+        json out = {{"channel", cfg.value("channel", "WTV")}, {"date", cfg.value("date", "")}, {"program", program}};
+        std::ofstream f(p.value("path", "")); if (!f) throw RpcError{"INVALID_PARAMS", "não foi possível escrever"};
+        f << out.dump(2);
+        return json::object();
+    }
+    if (method == "playlist.add" || method == "playlist.remove" || method == "playlist.jump" || method == "playlist.next" || method == "playlist.setLoop" || method == "playlist.move" || method == "playlist.setItem") {
+        std::string id = requireInput(p);
+        json s = store_.state();
+        if (s["inputs"][id].value("kind", "") != "playlist") throw RpcError{"INVALID_PARAMS", "a fonte não é um Playout"};
+        int jumpTo = -1; bool autoplay = p.value("play", true);
+        store_.mutate([&](json &st) {
+            json &cfg = st["inputs"][id]["config"];
+            json &items = cfg["items"];
+            int idx = cfg.value("index", 0);
+            if (method == "playlist.add") {
+                size_t before = items.size();
+                for (auto &path : p.value("paths", json::array())) { std::string ps = path.get<std::string>(); items.push_back({{"path", ps}, {"name", ps.substr(ps.find_last_of('/') + 1)}, {"in", 0}, {"out", 0}}); }
+                if (before == 0 && !items.empty()) jumpTo = 0; // lista estava vazia: começa
+            } else if (method == "playlist.remove") {
+                int i = p.value("index", -1);
+                if (i < 0 || i >= (int)items.size()) throw std::runtime_error("index");
+                items.erase(i);
+                if (i < idx) cfg["index"] = idx - 1;
+                else if (i == idx) jumpTo = items.empty() ? -1 : std::min(idx, (int)items.size() - 1);
+            } else if (method == "playlist.move") {
+                int from = p.value("from", -1), to = p.value("to", -1);
+                if (from < 0 || to < 0 || from >= (int)items.size() || to >= (int)items.size()) throw std::runtime_error("index");
+                json it = items[from]; items.erase(from); items.insert(items.begin() + to, it);
+                if (idx == from) cfg["index"] = to; else if (from < idx && to >= idx) cfg["index"] = idx - 1; else if (from > idx && to <= idx) cfg["index"] = idx + 1;
+            } else if (method == "playlist.jump") {
+                int i = p.value("index", 0);
+                if (i < 0 || i >= (int)items.size()) throw std::runtime_error("index");
+                jumpTo = i;
+            } else if (method == "playlist.next") {
+                if (items.empty()) return;
+                int n = idx + 1;
+                if (n >= (int)items.size()) { if (!cfg.value("loopList", true)) { jumpTo = -2; return; } n = 0; }
+                jumpTo = n;
+            } else if (method == "playlist.setLoop") {
+                cfg["loopList"] = p.value("on", true);
+            } else if (method == "playlist.setItem") {
+                int i = p.value("index", -1);
+                if (i < 0 || i >= (int)items.size()) throw std::runtime_error("index");
+                if (p.contains("in")) items[i]["in"] = std::max(0.0, p["in"].get<double>());
+                if (p.contains("out")) items[i]["out"] = std::max(0.0, p["out"].get<double>());
+                if (p.contains("name")) items[i]["name"] = p["name"];
+            }
+            if (jumpTo >= 0) cfg["index"] = jumpTo;
+        });
+        if (jumpTo >= 0) {
+            json st = store_.state();
+            json item = st["inputs"][id]["config"]["items"][jumpTo];
+            sw_.playlistLoad(id, item.value("path", ""), false);
+            double in = item.value("in", 0.0);
+            if (in > 0 || !autoplay) std::thread([this, id, in, autoplay] { // espera que a fonte abra o ficheiro antes do seek
+                // só depois de a reprodução do ficheiro novo ter começado é que o seek pega (a troca de ficheiro demora uns 300 ms)
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                for (int i = 0; i < 40; i++) { auto mi = sw_.mediaInfo(id); if (mi.state == "playing" && mi.positionSeconds > 0.05) break; std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+                // Nota: a libobs salta para o keyframe anterior ao ponto "in" (AVSEEK_FLAG_BACKWARD); a precisão depende do GOP do ficheiro.
+                if (in > 0) sw_.mediaCommand(id, "media.seek", json{{"seconds", in}});
+                if (!autoplay) sw_.mediaCommand(id, "media.pause", json());
+            }).detach();
+        } else if (jumpTo == -2) sw_.mediaCommand(id, "media.stop", json());
+        tickMedia();
         return json::object();
     }
     if (method == "media.play" || method == "media.pause" || method == "media.stop" || method == "media.seek" || method == "media.setLoop") {

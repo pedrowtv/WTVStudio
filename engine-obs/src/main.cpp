@@ -95,6 +95,7 @@ int main(int argc, char **argv) {
     audio.start();
     Commands cmd(store, sw, rt, outputs, audio, ENGINE_VERSION);
     sw.onTransitionDone = [&] { cmd.onTransitionDone(); };
+    sw.onMediaEnded = [&](const std::string &id) { cmd.onMediaEnded(id); };
 
     ControlServer server;
     store.setListener([&](int from, int to, const json &ops) {

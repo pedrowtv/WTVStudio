@@ -61,6 +61,8 @@ Notas: a captura de ecrã precisa da permissão "Gravação de Ecrã" para o pro
 
 Definições (2026-10-23): painel com barra lateral à maneira do vMix e páginas à maneira do OBS — Vídeo (formato, multiview, renderização), Stream e codificação (bitrates, keyframe, perfil, CBR/VBR, barramentos das saídas), Gravação (pasta, contentor), Áudio (monitor, matriz de barramentos M/A/B + AFV), Projector (ecrã, conteúdo, ecrã inteiro), Atalhos, Rede e dispositivos (NDI, ecrãs, saídas de áudio), Motor e registo. Só mostra o que o motor libobs suporta.
 
+Playout (2026-10-23): fonte "Playout" que toca uma lista de ficheiros em sequência (in/out por item, repetir lista, saltar, seguinte), com painel próprio no botão Playout e importação/exportação no formato de playlist do ffplayout (adoptou-se só o formato: o ffplayout é GPL-3 e Rust, o OBS é GPL-2, não se mistura código). Limitação: o salto ao ponto in cai no keyframe anterior.
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

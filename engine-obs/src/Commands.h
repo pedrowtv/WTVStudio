@@ -12,7 +12,8 @@ class Commands {
 public:
     Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string engineVersion);
     json handle(const json &req);
-    void onTransitionDone();     // troca Preview/Program no estado quando a libobs termina a transição
+    void onTransitionDone();
+    void onMediaEnded(const std::string &inputId); // playlist: passa ao item seguinte     // troca Preview/Program no estado quando a libobs termina a transição
     void tickMedia();            // actualiza posições/estado de media (chamar ~2×/s)
     std::atomic<bool> shutdownRequested{false};
 
