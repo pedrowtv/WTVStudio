@@ -1,6 +1,8 @@
 # WTV Studio
 
-Misturador de vídeo ao vivo tipo vMix para macOS Apple Silicon. Interface em Electron + React; motor nativo em Swift (Metal, VideoToolbox, AVFoundation).
+Misturador de vídeo ao vivo tipo vMix. Interface em Electron + React; motor nativo em Swift (Metal, VideoToolbox, AVFoundation) no Mac. Licença **GPL-2.0** (ver `LICENSE`).
+
+Direcção a partir de 2026-10-23 (decisão D23): o motor passa a ser **C++ sobre a libobs** (OBS Studio), para um só motor em macOS (Metal) e Windows (Direct3D 11), mantendo a interface Electron e o protocolo. O motor Swift fica como protótipo de referência enquanto a migração não estiver completa.
 
 - [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) — decisões, processos, pipeline, capacidade, fases.
 - [docs/PROTOCOLO.md](docs/PROTOCOLO.md) — contrato motor ⇄ interface (JSON-RPC, estado, preview binário).
@@ -56,3 +58,7 @@ Correcções de 2026-10-23 (revisão adversarial e relatos do utilizador): o pro
 Acrescentado a 2026-10-23 (pedidos do utilizador): **entrada NDI** (descoberta na rede, recepção BGRA + áudio, modo low-bandwidth), **SRT** entrada e saída (saída via HaishinKit; entrada própria sobre a libsrt com desmultiplexador MPEG-TS, H.264/HEVC por VideoToolbox e AAC por AudioConverter, caller ou listener, latência e passphrase), **barramentos de áudio** Master / A / B com envio por canal, monitorização por barramento e barramento por saída (stream+gravação, NDI), e **plugins Audio Unit** por canal (23 AUs encontrados nesta máquina; cadeia por canal, bypass, janela de parâmetros com a vista própria do plugin ou a vista genérica). Tudo verificado em loopback nesta máquina.
 
 Notas: a captura de ecrã precisa da permissão "Gravação de Ecrã" para o processo que lança o motor; em desenvolvimento é o Terminal. Não há câmaras ligadas nesta máquina, por isso o caminho AVFoundation está compilado mas não testado com hardware.
+
+## Plugins Audio Unit de terceiros
+
+O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.
