@@ -33,6 +33,13 @@ function traduz(e: unknown): string {
 }
 
 type Modal = null | "fontes" | "audio" | "saidas" | "definicoes" | "overlays" | "playout";
+/** Relógio de régie (hora local, atualiza a cada segundo). */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  return <span className="clock" title={now.toLocaleDateString("pt-PT")}>{now.toLocaleTimeString("pt-PT")}</span>;
+}
+
 const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays", playout: "Playout" };
 
 export function App({ engineUrl, token }: { engineUrl: string; token: string | null }) {
@@ -95,7 +102,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
     <div className="app">
       <header className="toolbar">
         <div className="toolbar-group">
-          <span className="brand">WTV Studio</span>
+          <span className="brand">WTV STUDIO</span>
           <button className="btn" onClick={async () => { const name = await askText("Guardar projecto", "Nome do projecto", engine?.project.name && engine.project.name !== "Sem título" ? engine.project.name : ""); if (name) void run("project.save", { path: name }); }}>Guardar</button>
           <button
             className="btn"
@@ -138,6 +145,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
           {recording && <span className="pill pill-rec">● REC</span>}
           {liveOutputs > 0 && <span className="pill pill-live">NO AR · {liveOutputs}</span>}
           {engine?.program.ftb && <span className="pill pill-rec">FTB</span>}
+          <Clock />
           <button className="btn" onClick={() => setModal("definicoes")}>Definições</button>
         </div>
       </header>
@@ -210,12 +218,19 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
         <button className="btn btn-wide" onClick={() => setModal("saidas")}>Externo (NDI)</button>
         <button className="btn btn-wide" onClick={() => setModal("overlays")}>Overlay</button>
         <button className="btn btn-wide" onClick={() => setModal("playout")}>Playout</button>
-        <span className="spacer" />
+      </footer>
+      <footer className="statusbar">
         <span className="status">
-          <strong className="status-format">{engine ? `${engine.project.raster.height}p${engine.project.raster.fps}` : "—"}</strong>
-          <span>Preview: {previewStatus}</span>
-          <span>Codificador: {engine?.budget.encoderUsedPercent.toFixed(0) ?? 0}%</span>
-          <span>Térmico: {engine?.system.thermal ?? "—"}</span>
+          <strong className="status-format">{engine ? `${engine.project.raster.width}×${engine.project.raster.height} ${engine.project.raster.fps}p` : "—"}</strong>
+          <span>PGM {engine?.program.inputId ? engine.inputs[engine.program.inputId]?.name : "—"}</span>
+          <span>PVW {engine?.preview.inputId ? engine.inputs[engine.preview.inputId]?.name : "—"}</span>
+          <span>REC {recording ? `● ${((engine?.recording.bytes ?? 0) / 1e6).toFixed(0)} MB` : "parado"}</span>
+          <span>STREAM {liveOutputs > 0 ? `● ${liveOutputs} destino(s)` : "parado"}</span>
+          <span>Preview {previewStatus}</span>
+          <span>Enc {engine?.budget.encoderUsedPercent.toFixed(0) ?? 0}%</span>
+          <span>Térmico {engine?.system.thermal ?? "—"}</span>
+          <span className="spacer" />
+          <span>{engineUrl}</span>
         </span>
       </footer>
 

@@ -69,6 +69,8 @@ Afinação 432 Hz (2026-10-23): plugin "Afinação 432 Hz (pitch)" no Audio Mixe
 
 Audio Units no motor libobs (2026-10-23): os plugins instalados (Alpen CL, Prisma EQ Pro, Sonic Processor e os da Apple) voltam a aparecer no Audio Mixer ao lado dos filtros do OBS; o ⚙ abre a janela própria do plugin e os parâmetros também são editáveis por protocolo. Verificado: Alpen CL a comprimir um tom de −21 para −48 dBFS com o threshold no mínimo.
 
+Aspecto (2026-10-23): a pedido do utilizador ("parece uma app de iPad"), tema de régie profissional: plano e escuro, cantos de 2 px, tipografia 11–12 px, barra de menus com relógio e indicadores NO AR/REC, monitores com cabeçalho Preview/Program e timecode monoespaçado, coluna de transições compacta com T-bar graduada, cartões de fontes densos com tally, barra de controlo e barra de estado (formato, PGM/PVW, REC, STREAM, preview, codificador, térmico, endereço do motor).
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.
