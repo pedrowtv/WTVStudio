@@ -19,6 +19,8 @@ static std::string nowIso() {
     char buf[32]; time_t t = time(nullptr); strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", gmtime(&t)); return buf;
 }
 
+static std::string idOrEmpty(const json &v) { return v.is_string() ? v.get<std::string>() : ""; }
+
 Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
     : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
     store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["audioIn"] = audio_.inputDevices(); s["devices"]["ndiSources"] = NDI::discover(0); s["devices"]["displays"] = Projector::displays(); });
@@ -29,9 +31,14 @@ void Commands::applyAudio(const std::string &only) {
     bool anySolo = false;
     for (auto &[id, ch] : s["audio"]["inputs"].items()) if (ch.value("solo", false)) anySolo = true;
     std::string monBus = s["audio"]["monitor"].value("bus", "master");
+    std::string pgm = idOrEmpty(s["program"]["inputId"]), pvw = idOrEmpty(s["preview"]["inputId"]);
+    bool transitioning = !s["program"]["transition"].is_null();
     for (auto &[id, ch] : s["audio"]["inputs"].items()) if (only.empty() || only == id) {
-        audio_.applyChannel(id, ch, anySolo, monBus);
-        sw_.setAlwaysAudible(id, !ch.value("afv", true));
+        bool onAir = id == pgm || (transitioning && id == pvw);
+        for (auto &o : s["overlays"]) if (o.value("on", false) && o["inputId"] == id) onAir = true;
+        bool iso = audio_.hasIsoTrack(id);
+        audio_.applyChannel(id, ch, anySolo, monBus, onAir);
+        sw_.setAlwaysAudible(id, !ch.value("afv", true) || iso); // ISO: fonte activa para a libobs misturar o áudio dela
     }
 }
 
@@ -60,9 +67,9 @@ void Commands::syncMultiview() {
     json s = store_.state();
     std::string pvw = s["preview"]["inputId"].is_string() ? s["preview"]["inputId"].get<std::string>() : "";
     sw_.rebuildMultiview(s["multiview"]["tiles"], pvw);
+    applyAudio(); // o que está no ar mudou: refaz as máscaras de áudio (AFV + ISO)
 }
 
-static std::string idOrEmpty(const json &v) { return v.is_string() ? v.get<std::string>() : ""; }
 
 static void swapPvwPgm(json &s) {
     json pvw = s["preview"]["inputId"];
@@ -292,6 +299,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "input.remove") {
         std::string id = requireInput(p);
+        out_.isoStop(id);
         audio_.detach(id);
         sw_.removeInput(id);
         store_.mutate([&](json &st) {
@@ -387,6 +395,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         });
         json s = store_.state();
         sw_.setOverlay(slot, s["overlays"][slot - 1], s["project"]["raster"].value("fps", 50.0));
+        applyAudio();
         return json::object();
     }
     if (method == "audio.setGain" || method == "audio.setMute" || method == "audio.setSolo" || method == "audio.setAFV" || method == "audio.setPan" || method == "audio.setDelay" || method == "audio.setBus") {
@@ -508,6 +517,25 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "record.start") { std::string err; if (!out_.startRecording(err)) throw RpcError{"NOT_RUNNING", err}; return json::object(); }
     if (method == "record.stop") { out_.stopRecording(); return json::object(); }
+    if (method == "record.isoStart") {
+        json ids = p.value("inputIds", json::array());
+        json s = store_.state();
+        if (ids.empty()) for (auto &id : s["inputOrder"]) { std::string k = s["inputs"][id.get<std::string>()].value("kind", ""); if (k != "title" && k != "audioDevice") ids.push_back(id); }
+        json started = json::array(), failed = json::object();
+        for (auto &idv : ids) {
+            std::string id = idv.get<std::string>(); std::string err;
+            if (!sw_.hasInput(id)) { failed[id] = "INPUT_NOT_FOUND"; continue; }
+            if (out_.isoStart(id, sw_.sourceRef(id), s["inputs"][id].value("name", id), err)) started.push_back(id); else failed[id] = err;
+        }
+        applyAudio();
+        if (started.empty() && !failed.empty()) throw RpcError{failed.begin().value().get<std::string>(), "não foi possível iniciar a gravação ISO"};
+        return {{"started", started}, {"failed", failed}};
+    }
+    if (method == "record.isoStop") {
+        if (p.contains("inputId")) out_.isoStop(p["inputId"].get<std::string>()); else out_.isoStopAll();
+        applyAudio();
+        return json::object();
+    }
     if (method == "output.add") {
         std::string err, id = out_.add(p.value("kind", ""), p.value("name", ""), p.value("config", json::object()), err);
         if (id.empty()) throw RpcError{err, "não foi possível criar a saída"};

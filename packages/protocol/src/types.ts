@@ -273,6 +273,8 @@ export interface RecordingState {
   container: "mov" | "mp4";
   /** Pasta de destino; ausente = ~/Movies/WTV Studio. */
   folder?: string | null;
+  /** MultiCorder (motor libobs): gravações ISO por fonte em curso. */
+  iso?: Record<InputId, { status: "recording" | "stopping" | "idle" | "error"; file: string; startedAt: string; track: number }>;
 }
 
 export interface Tile {

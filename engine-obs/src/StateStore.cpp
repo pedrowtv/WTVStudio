@@ -67,7 +67,7 @@ json defaultState(const std::string &engineVersion, const std::string &bind) {
                    {"outputBus", {{"stream", "master"}, {"ndi", "master"}}},
                    {"tuning", {{"enabled", false}, {"cents", -31.766533}}}}},
         {"outputs", json::object()},
-        {"recording", {{"status", "idle"}, {"container", "mp4"}, {"folder", nullptr}}},
+        {"recording", {{"status", "idle"}, {"container", "mp4"}, {"folder", nullptr}, {"iso", json::object()}}},
         {"projector", {{"displayId", nullptr}, {"source", "program"}, {"fullscreen", false}}},
         {"multiview", {{"layoutId", "2+8"}, {"size", {{"width", 1280}, {"height", 720}}}, {"tiles", json::array()}}},
         {"devices", {{"video", json::array()}, {"audioIn", json::array()}, {"audioOut", json::array()}, {"displays", json::array()},

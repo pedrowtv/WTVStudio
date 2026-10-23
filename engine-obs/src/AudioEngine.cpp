@@ -74,6 +74,22 @@ void AudioEngine::applyTuning(Channel *c) {
     }
 }
 
+void AudioEngine::setIsoTrack(const std::string &id, int trackIdx) {
+    std::lock_guard l(m_);
+    auto it = channels_.find(id);
+    if (it == channels_.end()) return;
+    it->second->isoTrack = trackIdx;
+    uint32_t mask = obs_source_get_audio_mixers(it->second->src) & 0x7u; // mantém os buses actuais; Commands::applyAudio refaz tudo a seguir
+    if (trackIdx >= 0) mask |= (1u << trackIdx);
+    obs_source_set_audio_mixers(it->second->src, mask);
+}
+
+bool AudioEngine::hasIsoTrack(const std::string &id) {
+    std::lock_guard l(m_);
+    auto it = channels_.find(id);
+    return it != channels_.end() && it->second->isoTrack >= 0;
+}
+
 void AudioEngine::setGlobalTuning(bool enabled, double cents) {
     std::lock_guard l(m_);
     tuningOn_ = enabled; tuningCents_ = cents;
@@ -98,7 +114,7 @@ uint32_t AudioEngine::busMask(const json &buses) {
     return m;
 }
 
-void AudioEngine::applyChannel(const std::string &id, const json &ch, bool anySolo, const std::string &monitorBus) {
+void AudioEngine::applyChannel(const std::string &id, const json &ch, bool anySolo, const std::string &monitorBus, bool onAir) {
     std::lock_guard l(m_);
     auto it = channels_.find(id);
     if (it == channels_.end()) return;
@@ -109,10 +125,14 @@ void AudioEngine::applyChannel(const std::string &id, const json &ch, bool anySo
     obs_source_set_muted(s, mute);
     obs_source_set_balance_value(s, (float)((ch.value("pan", 0.0) + 1.0) / 2.0));
     obs_source_set_sync_offset(s, (int64_t)ch.value("delayMs", 0) * 1000000LL);
-    uint32_t mask = busMask(ch.value("buses", json::array({"master"})));
-    obs_source_set_audio_mixers(s, mask ? mask : BUS_MASTER);
+    uint32_t buses = busMask(ch.value("buses", json::array({"master"})));
+    if (!buses) buses = BUS_MASTER;
+    bool afv = ch.value("afv", true);
+    uint32_t mask = (onAir || !afv) ? buses : 0; // AFV: fora do ar não entra nos buses, mesmo que a fonte esteja activa por causa do ISO
+    if (it->second->isoTrack >= 0) mask |= (1u << it->second->isoTrack);
+    obs_source_set_audio_mixers(s, mask);
     uint32_t monMask = monitorBus == "a" ? BUS_A : monitorBus == "b" ? BUS_B : BUS_MASTER;
-    obs_source_set_monitoring_type(s, (mask & monMask) ? OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT : OBS_MONITORING_TYPE_NONE);
+    obs_source_set_monitoring_type(s, (buses & monMask) ? OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT : OBS_MONITORING_TYPE_NONE);
 }
 
 void AudioEngine::setMonitorDevice(const std::string &deviceId) {

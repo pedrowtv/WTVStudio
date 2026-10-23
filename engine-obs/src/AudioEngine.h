@@ -21,7 +21,9 @@ public:
     void detach(const std::string &inputId);
 
     /// Aplica o AudioChannelState a uma fonte (volume, mute efectivo com solo, pan, atraso, buses, AFV, monitor).
-    void applyChannel(const std::string &inputId, const json &channel, bool anySolo, const std::string &monitorBus);
+    /// onAir: a fonte está em Program (ou a entrar); com AFV ligado e fora do ar, os buses M/A/B ficam a zero mas a track ISO mantém-se.
+    void applyChannel(const std::string &inputId, const json &channel, bool anySolo, const std::string &monitorBus, bool onAir);
+    bool hasIsoTrack(const std::string &inputId);
     void setMonitorDevice(const std::string &deviceId);
 
     std::string addPlugin(const std::string &inputId, const std::string &componentId, std::string &name, std::string &error);
@@ -29,6 +31,8 @@ public:
     bool setPluginBypass(const std::string &inputId, const std::string &pluginId, bool bypass);
     /// Afinação global: filtro wtv_pitch_filter oculto em todos os canais (actuais e futuros).
     void setGlobalTuning(bool enabled, double cents);
+    /// Gravação ISO: track extra (3..5) onde só esta fonte entra; -1 remove.
+    void setIsoTrack(const std::string &inputId, int trackIdx);
     bool openPluginWindow(const std::string &inputId, const std::string &pluginId, const std::string &title); // só Audio Units
     json pluginParams(const std::string &inputId, const std::string &pluginId);          // {properties:[...], values:{...}}
     bool setPluginParams(const std::string &inputId, const std::string &pluginId, const json &params);
@@ -49,6 +53,7 @@ private:
         bool forcedActive = false; // AFV desligado → obs_source_inc_active
         std::map<std::string, obs_source_t *> plugins;
         obs_source_t *tuning = nullptr; // filtro global de afinação (não aparece na lista de plugins)
+        int isoTrack = -1;
     };
     struct Track { std::atomic<float> peak[2]{0, 0}, rms[2]{0, 0}; };
     static void meterCb(void *param, const float magnitude[MAX_AUDIO_CHANNELS], const float peak[MAX_AUDIO_CHANNELS], const float inputPeak[MAX_AUDIO_CHANNELS]);

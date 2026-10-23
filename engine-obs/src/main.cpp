@@ -93,10 +93,11 @@ int main(int argc, char **argv) {
     if (!sw.init(oc.width, oc.height, 1280, 720)) { fprintf(stderr, "switcher não inicializou\n"); return 1; }
 
     StateStore store(defaultState(ENGINE_VERSION, sc.bind + ":" + std::to_string(sc.port)));
-    Outputs outputs(store, rt);
-    outputs.setNdiAvailable(NDI::available());
     AudioEngine audio;
     audio.start();
+    Outputs outputs(store, rt);
+    outputs.setNdiAvailable(NDI::available());
+    outputs.setAudioEngine(&audio);
     Commands cmd(store, sw, rt, outputs, audio, ENGINE_VERSION);
     sw.onTransitionDone = [&] { cmd.onTransitionDone(); };
     sw.onMediaEnded = [&](const std::string &id) { cmd.onMediaEnded(id); };

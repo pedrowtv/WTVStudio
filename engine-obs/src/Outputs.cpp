@@ -31,6 +31,7 @@ bool Outputs::ensureEncoders() {
 
 bool Outputs::anyActive() {
     if (rec_ && obs_output_active(rec_)) return true;
+    if (!iso_.empty()) return true;
     for (auto &[id, e] : outputs_) if (e.output && obs_output_active(e.output)) return true;
     return false;
 }
@@ -224,6 +225,7 @@ void Outputs::stopRecording() {
 }
 
 void Outputs::shutdown() {
+    isoStopAll();
     stopRecording();
     std::lock_guard l(m_);
     for (auto &[id, e] : outputs_) {
@@ -251,4 +253,106 @@ bool Outputs::setStreamBus(int idx, std::string &error) {
     mixerIdx_ = idx;
     releaseEncodersIfIdle();
     return true;
+}
+
+// ---------------- MultiCorder (ISO) ----------------
+static std::string isoFolder(StateStore &store) {
+    json s = store.state();
+    std::string folder = s["recording"]["folder"].is_string() ? s["recording"]["folder"].get<std::string>() : std::string(getenv("HOME")) + "/Movies/WTV Studio";
+    folder += "/iso";
+    system(("mkdir -p \"" + folder + "\"").c_str());
+    return folder;
+}
+
+void Outputs::onIsoStop(void *d, calldata_t *cd) {
+    auto *c = (SignalCtx *)d;
+    long long code = calldata_int(cd, "code");
+    c->self->store_.mutate([&](json &s) { if (s["recording"].contains("iso") && s["recording"]["iso"].contains(c->id)) { s["recording"]["iso"][c->id]["status"] = code == 0 ? "idle" : "error"; } });
+}
+
+bool Outputs::isoStart(const std::string &id, obs_source_t *source, const std::string &name, std::string &error) {
+    std::lock_guard l(m_);
+    if (iso_.count(id)) { error = "ALREADY_RUNNING"; return false; }
+    if (!source) { error = "INPUT_NOT_FOUND"; return false; }
+    int track = -1;
+    for (int t = 3; t <= 5; t++) { bool used = false; for (auto &[k, v] : iso_) if (v.track == t) used = true; if (!used) { track = t; break; } }
+    if (track < 0) { error = "ENCODER_BUDGET"; return false; } // 3 tracks livres (4..6) → máximo 3 ISO com áudio em simultâneo
+    obs_video_info ovi{}; obs_get_video_info(&ovi);
+    Iso iso; iso.track = track;
+    iso.scene = obs_scene_create_private(("iso-" + id).c_str());
+    obs_sceneitem_t *item = obs_scene_add(iso.scene, source);
+    vec2 pos{0, 0}, bounds{(float)ovi.base_width, (float)ovi.base_height};
+    obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
+    obs_sceneitem_set_bounds_alignment(item, OBS_ALIGN_CENTER);
+    obs_sceneitem_set_pos(item, &pos); obs_sceneitem_set_bounds(item, &bounds);
+    iso.view = obs_view_create();
+    obs_view_set_source(iso.view, 0, obs_scene_get_source(iso.scene));
+    iso.video = obs_view_add2(iso.view, &ovi); // mesmo raster e fps do Program
+    if (!iso.video) { obs_view_destroy(iso.view); obs_scene_release(iso.scene); error = "DEVICE_UNAVAILABLE"; return false; }
+    json enc = store_.state()["project"].value("encoding", json::object());
+    obs_data_t *vs = obs_data_create();
+    obs_data_set_int(vs, "bitrate", enc.value("videoBitrateKbps", 6000)); obs_data_set_string(vs, "rate_control", "CBR");
+    obs_data_set_int(vs, "keyint_sec", 2); obs_data_set_string(vs, "profile", "high"); obs_data_set_bool(vs, "bframes", false);
+    iso.venc = obs_video_encoder_create(rt_.videoEncoderId().c_str(), ("iso-h264-" + id).c_str(), vs, nullptr);
+    obs_data_release(vs);
+    obs_data_t *as = obs_data_create(); obs_data_set_int(as, "bitrate", enc.value("audioBitrateKbps", 160));
+    iso.aenc = obs_audio_encoder_create("CoreAudio_AAC", ("iso-aac-" + id).c_str(), as, (size_t)track, nullptr);
+    if (!iso.aenc) iso.aenc = obs_audio_encoder_create("ffmpeg_aac", ("iso-aac-" + id).c_str(), as, (size_t)track, nullptr);
+    obs_data_release(as);
+    obs_encoder_set_video(iso.venc, iso.video);
+    obs_encoder_set_audio(iso.aenc, obs_get_audio());
+    if (audioEngine_) audioEngine_->setIsoTrack(id, track);
+    std::string safe = name; for (auto &c : safe) if (c == '/' || c == ':') c = '-';
+    char ts[64]; time_t t = time(nullptr); strftime(ts, sizeof ts, "%Y-%m-%d %H-%M-%S", localtime(&t));
+    iso.file = isoFolder(store_) + "/" + safe + " " + ts + ".mp4";
+    obs_data_t *os = obs_data_create(); obs_data_set_string(os, "path", iso.file.c_str());
+    iso.out = obs_output_create("ffmpeg_muxer", ("iso-" + id).c_str(), os, nullptr);
+    obs_data_release(os);
+    obs_output_set_media(iso.out, iso.video, obs_get_audio());
+    obs_output_set_video_encoder(iso.out, iso.venc);
+    obs_output_set_audio_encoder(iso.out, iso.aenc, 0);
+    std::string key = "iso:" + id;
+    if (!ctx_.count(key)) ctx_[key] = new SignalCtx{this, id};
+    signal_handler_connect(obs_output_get_signal_handler(iso.out), "stop", onIsoStop, ctx_[key]);
+    iso_[id] = iso;
+    if (!obs_output_start(iso.out)) {
+        const char *le = obs_output_get_last_error(iso.out);
+        error = le ? le : "falha ao iniciar";
+        isoRelease(id);
+        return false;
+    }
+    std::string file = iso.file;
+    store_.mutate([&](json &s) { s["recording"]["iso"][id] = {{"status", "recording"}, {"file", file}, {"startedAt", nowIso()}, {"track", track + 1}}; });
+    return true;
+}
+
+void Outputs::isoRelease(const std::string &id) {
+    auto it = iso_.find(id);
+    if (it == iso_.end()) return;
+    Iso &iso = it->second;
+    if (iso.out) obs_output_release(iso.out);
+    if (iso.venc) obs_encoder_release(iso.venc);
+    if (iso.aenc) obs_encoder_release(iso.aenc);
+    if (iso.view) { obs_view_set_source(iso.view, 0, nullptr); obs_view_remove(iso.view); obs_view_destroy(iso.view); }
+    if (iso.scene) obs_scene_release(iso.scene);
+    if (audioEngine_) audioEngine_->setIsoTrack(id, -1);
+    iso_.erase(it);
+}
+
+bool Outputs::isoStop(const std::string &id) {
+    std::lock_guard l(m_);
+    auto it = iso_.find(id);
+    if (it == iso_.end()) return false;
+    store_.mutate([&](json &s) { if (s["recording"].contains("iso") && s["recording"]["iso"].contains(id)) s["recording"]["iso"][id]["status"] = "stopping"; });
+    obs_output_stop(it->second.out);
+    for (int i = 0; i < 100 && obs_output_active(it->second.out); i++) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    isoRelease(id);
+    store_.mutate([&](json &s) { if (s["recording"].contains("iso")) s["recording"]["iso"].erase(id); });
+    return true;
+}
+
+void Outputs::isoStopAll() {
+    std::vector<std::string> ids;
+    { std::lock_guard l(m_); for (auto &[id, v] : iso_) ids.push_back(id); }
+    for (auto &id : ids) isoStop(id);
 }

@@ -244,3 +244,6 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
   Quando um ficheiro acaba (`media_ended`) ou chega ao `out`, passa ao seguinte; o salto ao `in` cai no keyframe anterior (precisão = GOP do ficheiro).
 - Entradas de áudio: `input.add {kind: "audioDevice", config: {uid}}` (coreaudio_input_capture; `devices.audioIn` lista os dispositivos, `uid: "default"` = predefinido).
 - `audio.setTuning {on, cents}` (motor libobs): afinação global; liga um filtro de pitch oculto em todos os canais (actuais e futuros); estado em `audio.tuning {enabled, cents}`.
+- MultiCorder (motor libobs): `record.isoStart {inputIds?: []}` (vazio = todas as fontes com vídeo) → `{started, failed}`; `record.isoStop {inputId?}` (sem id = todas).
+  Estado em `recording.iso[inputId] = {status, file, startedAt, track}`. Cada ISO usa um obs_view próprio e uma track de áudio da libobs (4–6):
+  máximo 3 ISO com áudio em simultâneo. Ficheiros em `<pasta de gravação>/iso/<nome> <data>.mp4`.

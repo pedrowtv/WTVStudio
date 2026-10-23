@@ -306,6 +306,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
         <button className="btn btn-wide" onClick={() => docks.show("saidas")}>Externo (NDI)</button>
         <button className="btn btn-wide" onClick={() => docks.show("overlays")}>Overlay</button>
         <button className="btn btn-wide" onClick={() => docks.show("playout")}>Playout</button>
+        <button className={Object.keys(engine?.recording.iso ?? {}).length ? "btn btn-wide btn-program" : "btn btn-wide"} title="Gravação ISO por fonte" onClick={() => docks.show("saidas")}>{Object.keys(engine?.recording.iso ?? {}).length ? `● ISO ${Object.keys(engine?.recording.iso ?? {}).length}` : "MultiCorder"}</button>
       </footer>
       <footer className="statusbar">
         <span className="status">

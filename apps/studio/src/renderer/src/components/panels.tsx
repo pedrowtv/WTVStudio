@@ -257,6 +257,10 @@ export function AudioPanel({ run, meters }: { run: Run; meters: MeterReading[] }
 // ---------------------------------------------------------------- Saídas
 
 export function OutputsPanel({ run }: { run: Run }) {
+  return (<><OutputsPanelInner run={run} /><MultiCorderPanel run={run} /></>);
+}
+
+function OutputsPanelInner({ run }: { run: Run }) {
   const engine = useStore((s) => s.engine);
   if (!engine) return null;
   const outputs = Object.values(engine.outputs);
@@ -633,5 +637,40 @@ export function PlayoutPanel({ run }: { run: Run }) {
         </>
       )}
     </div>
+  );
+}
+
+/** MultiCorder: gravação ISO por fonte, em paralelo com o Program (até 3 com áudio, limite das tracks da libobs). */
+export function MultiCorderPanel({ run }: { run: Run }) {
+  const engine = useStore((s) => s.engine);
+  const [sel, setSel] = useState<string[]>([]);
+  if (!engine) return null;
+  const iso = engine.recording.iso ?? {};
+  const candidates = engine.inputOrder.filter((id) => { const k = engine.inputs[id]?.kind; return k && k !== "title" && k !== "audioDevice"; });
+  const active = Object.keys(iso);
+  return (
+    <>
+      <h3>MultiCorder (gravação ISO) {active.length > 0 && <span className="tally on">● {active.length} a gravar</span>}</h3>
+      <p className="hint">Cada fonte escolhida grava para o seu próprio ficheiro em …/iso, com o vídeo da fonte e só o áudio dela, independentemente do que está no ar. Até 3 fontes com áudio em simultâneo.</p>
+      <table className="matrix">
+        <thead><tr><th></th><th>Fonte</th><th>Estado</th><th>Ficheiro</th><th></th></tr></thead>
+        <tbody>
+          {candidates.map((id) => { const i = engine.inputs[id]; const r = iso[id]; return (
+            <tr key={id}>
+              <td><input type="checkbox" checked={sel.includes(id)} disabled={!!r} onChange={(e) => setSel(e.target.checked ? [...sel, id] : sel.filter((x) => x !== id))} /></td>
+              <td style={{ textAlign: "left" }}>{i.name}</td>
+              <td>{r ? <span className={r.status === "recording" ? "tally on" : "tally"}>{r.status === "recording" ? "● REC" : r.status}</span> : <span className="muted">—</span>}</td>
+              <td className="muted small" style={{ textAlign: "left", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r?.file}>{r?.file?.split("/").pop() ?? ""}</td>
+              <td>{r ? <button className="btn btn-x" onClick={() => run("record.isoStop", { inputId: id })}>Parar</button> : <button className="btn btn-x" onClick={() => run("record.isoStart", { inputIds: [id] })}>Gravar</button>}</td>
+            </tr>); })}
+          {candidates.length === 0 && <tr><td colSpan={5} className="muted">Sem fontes com vídeo.</td></tr>}
+        </tbody>
+      </table>
+      <div className="buttons">
+        <button className="btn" disabled={sel.length === 0} onClick={() => { void run("record.isoStart", { inputIds: sel }); setSel([]); }}>Gravar seleccionadas</button>
+        <button className="btn" onClick={() => run("record.isoStart", {})}>Gravar todas</button>
+        <button className="btn" disabled={active.length === 0} onClick={() => run("record.isoStop", {})}>Parar todas</button>
+      </div>
+    </>
   );
 }
