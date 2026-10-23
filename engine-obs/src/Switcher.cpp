@@ -1,6 +1,7 @@
 #include "Switcher.h"
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 static uint32_t parseColour(const std::string &hex, uint32_t fallback) {
     if (hex.size() != 7 || hex[0] != '#') return fallback;
@@ -148,12 +149,31 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
         obsId = "wtv_ndi_source";
         obs_data_set_string(s, "source_name", c.value("sourceName", "").c_str());
         obs_data_set_bool(s, "low_bandwidth", c.value("bandwidth", "highest") == "lowest");
+    } else if (kind == "replay") {
+        // Plugin Replay Source (Exeldro): toca o lance carregado; os buffers vivem nos filtros dos ângulos (Replay.cpp).
+        obsId = "replay_source";
+        obs_data_set_int(s, "duration", 8000);
+        obs_data_set_int(s, "replays", 2);           // guarda os 2 últimos lances (replay.next/previous)
+        obs_data_set_double(s, "speed_percent", 100);
+        obs_data_set_int(s, "visibility_action", 2); // Continue: toca mesmo fora do ar (vê-se no multiview); o take faz restart
+        obs_data_set_int(s, "end_action", 1);        // PauseAfterSingle: congela no último frame até o realizador cortar
+        obs_data_set_int(s, "retrieve_delay", 0);
+        obs_data_set_int(s, "start_delay", 0);
+        obs_data_set_int(s, "frame_step_count", 1);
+        obs_data_set_bool(s, "backward", false);
+        obs_data_set_bool(s, "sound_trigger", false);
+        obs_data_set_double(s, "threshold", -60);
+        obs_data_set_bool(s, "internal_frames", false);
+        for (const char *k : {"source", "source_audio", "next_scene", "load_switch_scene", "text_source", "progress_source", "directory"})
+            obs_data_set_string(s, k, "");
     } else {
         obs_data_release(s);
         error = "CAPABILITY_MISSING";
         return false;
     }
-    obs_source_t *src = obs_source_create(obsId.c_str(), name.c_str(), s, nullptr);
+    // Nome obs = inputId (único): o nome visível vive no estado; o replay resolve fontes e filtros por nome (Replay.cpp).
+    (void)name;
+    obs_source_t *src = obs_source_create(obsId.c_str(), id.c_str(), s, nullptr);
     obs_data_release(s);
     if (!src) { error = "DEVICE_UNAVAILABLE"; return false; }
     std::lock_guard l(m_);
@@ -304,9 +324,22 @@ void Switcher::transitionStopped(void *data, calldata_t *) {
     if (fire && self->onTransitionDone) self->onTransitionDone();
 }
 
+/// Esvazia uma cena. Recolhe os itens primeiro: remover (e libertar) dentro de obs_scene_enum_items destruía o item com o
+/// mutex da cena preso e a destruição entra no contexto gráfico — a ordem inversa da thread gráfica (obs-scene.c: "never
+/// lock the graphics mutex inside either of the scene mutexes") e o motor encravava num cut.
+static void removeAllItems(obs_scene_t *scene) {
+    std::vector<obs_sceneitem_t *> items;
+    obs_scene_enum_items(scene, [](obs_scene_t *, obs_sceneitem_t *item, void *p) {
+        obs_sceneitem_addref(item);
+        static_cast<std::vector<obs_sceneitem_t *> *>(p)->push_back(item);
+        return true;
+    }, &items);
+    for (auto *item : items) { obs_sceneitem_remove(item); obs_sceneitem_release(item); }
+}
+
 void Switcher::rebuildMultiview(const json &tiles, const std::string &previewId) {
     std::lock_guard l(m_);
-    obs_scene_enum_items(mvScene_, [](obs_scene_t *, obs_sceneitem_t *item, void *) { obs_sceneitem_remove(item); return true; }, nullptr);
+    removeAllItems(mvScene_);
     for (auto &t : tiles) {
         std::string src = t.value("source", "");
         obs_source_t *s = src == "program" ? obs_scene_get_source(programScene_) : src == "preview" ? source(previewId) : source(src);
@@ -369,7 +402,7 @@ void Switcher::setOverlay(int slot, const json &ov, double fps) {
     std::string inputId = ov["inputId"].is_string() ? ov["inputId"].get<std::string>() : "";
     bool on = ov.value("on", false) && !inputId.empty() && source(inputId);
     // Conteúdo do slot: um item com a fonte dentro do rectângulo pedido
-    obs_scene_enum_items(o.scene, [](obs_scene_t *, obs_sceneitem_t *item, void *) { obs_sceneitem_remove(item); return true; }, nullptr);
+    removeAllItems(o.scene);
     if (obs_source_t *src = source(inputId)) {
         obs_sceneitem_t *item = obs_scene_add(o.scene, src);
         auto r = ov["rect"];

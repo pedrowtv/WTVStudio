@@ -17,6 +17,8 @@ function InputCard({ input, index, run }: { input: InputState; index: number; ru
   const isPreview = engine?.preview.inputId === input.id;
   const audio = engine?.audio.inputs[input.id];
   const media = input.media;
+  // A fonte Replay é comandada pelo painel Replay (replay.*): Loop e ▶/❚❚ genéricos (media.*) desalinhariam o estado do lance.
+  const isReplay = input.kind === "replay";
   const overlayOn = (slot: number) => engine?.overlays[slot - 1]?.inputId === input.id && engine?.overlays[slot - 1]?.on;
 
   return (
@@ -42,12 +44,16 @@ function InputCard({ input, index, run }: { input: InputState; index: number; ru
         <button className="btn btn-card" title="Preview + cut" onClick={() => run("switcher.setPreview", { inputId: input.id }).then(() => run("switcher.cut", { txnId: newTxnId() }))}>
           Cut
         </button>
-        <button className={media?.loop ? "btn btn-card btn-on" : "btn btn-card"} disabled={!media} title="Repetir" onClick={() => media && run("media.setLoop", { inputId: input.id, loop: !media.loop })}>
-          Loop
-        </button>
-        <button className="btn btn-card" disabled={!media} title={media?.state === "playing" ? "Pausa" : "Reproduzir"} onClick={() => media && run(media.state === "playing" ? "media.pause" : "media.play", { inputId: input.id, txnId: newTxnId() })}>
-          {media?.state === "playing" ? "❚❚" : "▶"}
-        </button>
+        {!isReplay && (
+          <>
+            <button className={media?.loop ? "btn btn-card btn-on" : "btn btn-card"} disabled={!media} title="Repetir" onClick={() => media && run("media.setLoop", { inputId: input.id, loop: !media.loop })}>
+              Loop
+            </button>
+            <button className="btn btn-card" disabled={!media} title={media?.state === "playing" ? "Pausa" : "Reproduzir"} onClick={() => media && run(media.state === "playing" ? "media.pause" : "media.play", { inputId: input.id, txnId: newTxnId() })}>
+              {media?.state === "playing" ? "❚❚" : "▶"}
+            </button>
+          </>
+        )}
       </div>
       <div className="card-row">
         {[1, 2, 3, 4].map((slot) => (

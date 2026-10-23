@@ -4,13 +4,14 @@
 #include "Switcher.h"
 #include "Outputs.h"
 #include "AudioEngine.h"
+#include "Replay.h"
 #include <atomic>
 #include <string>
 
 /// Despacho JSON-RPC 2.0 (métodos do PROTOCOLO.md) sobre o StateStore e o Switcher.
 class Commands {
 public:
-    Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string engineVersion);
+    Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, Replay &replay, std::string engineVersion);
     json handle(const json &req);
     void onTransitionDone();
     void onMediaEnded(const std::string &inputId); // playlist: passa ao item seguinte     // troca Preview/Program no estado quando a libobs termina a transição
@@ -20,6 +21,7 @@ public:
 private:
     json dispatch(const std::string &method, const json &p);
     std::string requireInput(const json &p);
+    json addInput(const std::string &kind, const std::string &name, const json &config); // corpo de input.add (também usado por replay.setup)
     void syncMultiview();
 
     StateStore &store_;
@@ -27,6 +29,7 @@ private:
     ObsRuntime &rt_;
     Outputs &out_;
     AudioEngine &audio_;
+    Replay &replay_;
     void applyAudio(const std::string &inputId = ""); // "" = todos os canais
     std::string version_;
 };

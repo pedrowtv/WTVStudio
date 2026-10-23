@@ -8,6 +8,7 @@ import { Monitor } from "./components/Monitor";
 import { TransitionColumn } from "./components/TransitionColumn";
 import { InputStrip, InputTabs, useStripTab } from "./components/InputStrip";
 import { Overlays } from "./components/Overlays";
+import { ReplayPanel } from "./components/ReplayPanel";
 import { AudioPanel, OutputsPanel, SettingsPanel, PlayoutPanel, SourcesPanel } from "./components/panels";
 import { DOCK_ORDER, DOCK_TITLES, DockArea, dockChannel, useDocks, type DockName } from "./components/Docks";
 import { askFields, askText, finishPrompt, pickFiles, usePromptHost } from "./dialogs";
@@ -33,7 +34,7 @@ function traduz(e: unknown): string {
   return String(e);
 }
 
-type Modal = null | "fontes" | "audio" | "saidas" | "definicoes" | "overlays" | "playout";
+type Modal = null | "fontes" | "audio" | "saidas" | "definicoes" | "overlays" | "playout" | "replay";
 /** Relógio de régie (hora local, atualiza a cada segundo). */
 function Clock() {
   const [now, setNow] = useState(() => new Date());
@@ -41,7 +42,7 @@ function Clock() {
   return <span className="clock" title={now.toLocaleDateString("pt-PT")}>{now.toLocaleTimeString("pt-PT")}</span>;
 }
 
-const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays", playout: "Playout" };
+const TITULOS: Record<Exclude<Modal, null>, string> = { fontes: "Fontes", audio: "Audio Mixer", saidas: "Saídas", definicoes: "Definições", overlays: "Overlays", playout: "Playout", replay: "Replay" };
 
 /** Caixa de texto própria (o Electron não tem window.prompt). */
 function PromptHost({ prompt }: { prompt: NonNullable<ReturnType<typeof usePromptHost>> }) {
@@ -74,6 +75,12 @@ function PromptHost({ prompt }: { prompt: NonNullable<ReturnType<typeof usePromp
           </form>
         </div>
   );
+}
+
+/** Faixa de erro RPC (clique para fechar); a mesma na janela principal e nas janelas flutuantes (?panel=). */
+function ErrorBanner({ erro, onClose }: { erro: string | null; onClose: () => void }) {
+  if (!erro) return null;
+  return <div className="banner banner-erro" onClick={onClose}>{erro}</div>;
 }
 
 /** Abre um painel em janela própria (Electron) ou numa janela do browser (fallback). */
@@ -132,6 +139,40 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Atalhos do replay (sem modal/caixa aberta; com a fonte Replay criada ou ângulos armados): R = no ar / voltar ao vivo,
+  // ⇧1–⇧9 = capturar lance do ângulo N, [ = 50 %, ] = 100 %.
+  const replay = engine?.replay;
+  useEffect(() => {
+    if (!replay || replay.status === "unavailable" || (!replay.inputId && replay.angles.length === 0)) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Só os campos de escrita consomem teclas; um botão ou checkbox com foco (depois de um clique no painel) não deve calar o R.
+      const t = e.target as HTMLElement | null;
+      const typing = t && (t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable ||
+        (t.tagName === "INPUT" && !["checkbox", "radio", "range", "button", "submit"].includes((t as HTMLInputElement).type)));
+      if (typing) return;
+      if (e.metaKey || e.ctrlKey || e.repeat) return;
+      if (document.querySelector(".modal-backdrop")) return;
+      // ⇧1–⇧9 captura o lance do ângulo N. Decide-se pelo e.code porque com Shift o e.key nos teclados PT é "!", "\"", …
+      // (1–9 sem Shift é a coluna de transição: fonte N para Preview).
+      const digit = e.shiftKey && !e.altKey ? /^Digit([1-9])$/.exec(e.code) : null;
+      if (digit) {
+        const id = replay.angles[Number(digit[1]) - 1];
+        if (id) void run("replay.capture", { inputId: id });
+        return;
+      }
+      // Nos teclados portugueses do Mac, [ e ] saem com Alt+8 / Alt+9: o Alt só é bloqueado para o R.
+      if (e.key === "[") void run("replay.setSpeed", { percent: 50 });
+      else if (e.key === "]") void run("replay.setSpeed", { percent: 100 });
+      else if (!e.altKey && e.key.toLowerCase() === "r") {
+        // Com o Replay no ar o R volta sempre ao directo (mesmo já sem ângulos); pô-lo no ar exige a fonte Replay.
+        if (replay.onAir) void run("replay.backToLive", {});
+        else if (replay.inputId) void run("replay.onAir", {});
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [replay, run]);
+
   // Janela flutuante: anuncia-se à janela principal e avisa quando fecha (reencaixe automático).
   useEffect(() => {
     if (!panel || !dockChannel) return;
@@ -150,12 +191,14 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
       <div className="panel-window">
         {prompt && <PromptHost prompt={prompt} />}
         <header className="panel-window-head"><strong>{TITULOS[name] ?? panel}</strong><span className="spacer" /><span className={`pill pill-${connection}`}>{connection === "connected" ? "motor ligado" : connection === "connecting" ? "a ligar…" : "sem motor"}</span>{name !== "definicoes" && <button className="btn btn-x" title="Voltar a encaixar na janela principal" onClick={() => window.close()}>⇤ Encaixar</button>}</header>
+        {erro && <div className="banners"><ErrorBanner erro={erro} onClose={() => setErro(null)} /></div>}
         <div className="panel-window-body">
           {name === "fontes" && <SourcesPanel run={run} />}
           {name === "audio" && <AudioPanel run={run} meters={meters} />}
           {name === "saidas" && <OutputsPanel run={run} />}
           {name === "definicoes" && <SettingsPanel run={run} engineUrl={engineUrl} />}
           {name === "playout" && <PlayoutPanel run={run} />}
+          {name === "replay" && <ReplayPanel run={run} />}
           {name === "overlays" && <Overlays run={run} />}
           {!TITULOS[name] && <p className="muted">Painel desconhecido.</p>}
         </div>
@@ -239,7 +282,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
       </header>
 
       <div className="banners">{/* sempre presente: mantém as linhas da grelha alinhadas */}
-        {erro && <div className="banner banner-erro" onClick={() => setErro(null)}>{erro}</div>}
+        <ErrorBanner erro={erro} onClose={() => setErro(null)} />
         {critical.map((a) => <div key={a.id} className="banner banner-erro">{a.detail ?? a.code}</div>)}
         {connection === "disconnected" && <div className="banner banner-aviso">Sem ligação ao motor. A emissão continua se o motor estiver a correr; a reconectar…</div>}
       </div>
@@ -310,6 +353,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
         <button className="btn btn-wide" onClick={() => docks.show("saidas")}>Externo (NDI)</button>
         <button className="btn btn-wide" onClick={() => docks.show("overlays")}>Overlay</button>
         <button className="btn btn-wide" onClick={() => docks.show("playout")}>Playout</button>
+        <button className={replay?.onAir ? "btn btn-wide btn-program replay-tally" : "btn btn-wide"} title="Replay instantâneo: ângulos, capturar lance, câmara lenta (R, ⇧1–9, [, ])" onClick={() => docks.show("replay")}>{replay?.onAir ? "● REPLAY NO AR" : "Replay"}</button>
         <button className={Object.keys(engine?.recording.iso ?? {}).length ? "btn btn-wide btn-program" : "btn btn-wide"} title="Gravação ISO por fonte" onClick={() => docks.show("saidas")}>{Object.keys(engine?.recording.iso ?? {}).length ? `● ISO ${Object.keys(engine?.recording.iso ?? {}).length}` : "MultiCorder"}</button>
       </footer>
       <footer className="statusbar">
@@ -331,7 +375,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
 
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
-          <div className={modal === "definicoes" || modal === "playout" || modal === "audio" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
+          <div className={modal === "definicoes" || modal === "playout" || modal === "audio" || modal === "replay" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
             <header className="modal-head">
               <strong>{TITULOS[modal]}</strong>
               <span className="spacer" />
@@ -344,6 +388,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
               {modal === "saidas" && <OutputsPanel run={run} />}
               {modal === "definicoes" && <SettingsPanel run={run} engineUrl={engineUrl} />}
               {modal === "playout" && <PlayoutPanel run={run} />}
+              {modal === "replay" && <ReplayPanel run={run} />}
               {modal === "overlays" && <Overlays run={run} />}
             </div>
           </div>

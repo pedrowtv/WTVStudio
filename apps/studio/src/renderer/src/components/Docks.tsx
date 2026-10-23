@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { MeterReading } from "@wtv/protocol";
 import { AudioPanel, OutputsPanel, PlayoutPanel, SourcesPanel } from "./panels";
 import { Overlays } from "./Overlays";
+import { ReplayPanel } from "./ReplayPanel";
 
-export type DockName = "audio" | "playout" | "saidas" | "fontes" | "overlays";
-export const DOCK_TITLES: Record<DockName, string> = { audio: "Audio Mixer", playout: "Playout", saidas: "Saídas", fontes: "Fontes", overlays: "Overlays" };
-export const DOCK_ORDER: DockName[] = ["audio", "playout", "saidas", "fontes", "overlays"];
+export type DockName = "audio" | "playout" | "replay" | "saidas" | "fontes" | "overlays";
+export const DOCK_TITLES: Record<DockName, string> = { audio: "Audio Mixer", playout: "Playout", replay: "Replay", saidas: "Saídas", fontes: "Fontes", overlays: "Overlays" };
+export const DOCK_ORDER: DockName[] = ["audio", "playout", "replay", "saidas", "fontes", "overlays"];
 type Run = (method: string, params?: unknown) => Promise<unknown>;
 
 interface DockState { hidden: DockName[]; floating: DockName[]; active: DockName; height: number }
@@ -49,6 +50,7 @@ export function useDocks() {
 export function DockContent({ name, run, meters }: { name: DockName; run: Run; meters: MeterReading[] }) {
   if (name === "audio") return <AudioPanel run={run} meters={meters} />;
   if (name === "playout") return <PlayoutPanel run={run} />;
+  if (name === "replay") return <ReplayPanel run={run} />;
   if (name === "saidas") return <div className="dock-pad"><OutputsPanel run={run} /></div>;
   if (name === "fontes") return <div className="dock-pad"><SourcesPanel run={run} /></div>;
   return <div className="dock-pad"><Overlays run={run} /></div>;

@@ -86,6 +86,21 @@ DYLD_FRAMEWORK_PATH=~/.cache/wtv-obs/build/libobs/RelWithDebInfo DYLD_LIBRARY_PA
 
 Resultado verificado nesta máquina (2026-10-23): 1080p50 H.264 (`com.apple.videotoolbox.videoencoder.ave.avc`) + AAC (CoreAudio), 251 frames em 5 s sem frames perdidos com OpenGL; Metal também grava (6 frames atrasados no arranque). Pendente: o processo ainda termina com SIGSEGV na thread de tarefas da libobs durante `obs_shutdown`, mesmo com `obs_wait_for_destroy_queue()`; não afecta o ficheiro gravado.
 
+## Replay Source (plugin de replay instantâneo, Exeldro, GPL-2)
+
+As fontes vêm vendorizadas em `engine-obs/third_party/obs-replay-source` (versão 1.8.1; `NOTICE.md` lista as
+alterações: stub da `obs-frontend-api`, que no OBS depende da UI Qt). Compila-se como projecto autónomo contra a
+`libobs.framework` do build acima e dá um bundle `replay-source.plugin` que a libobs carrega como os outros:
+
+```bash
+cmake -S engine-obs/third_party/obs-replay-source -B ~/.cache/wtv-obs/replay-build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build ~/.cache/wtv-obs/replay-build
+ln -sfn ~/.cache/wtv-obs/replay-build/replay-source.plugin ~/.cache/wtv-obs/plugins/replay-source.plugin   # dev
+```
+
+Regista a fonte `replay_source` e os filtros `replay_filter`, `replay_filter_async` e `replay_filter_audio`;
+o `make-app-bundle.sh` copia-o para `Contents/PlugIns` e falha se não estiver compilado.
+
 ## Empacotar o motor libobs (WTV Engine.app) e a app
 
 ```bash

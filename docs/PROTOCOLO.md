@@ -248,3 +248,17 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
   Estado em `recording.iso[inputId] = {status, file, startedAt, track}`. Cada ISO usa um obs_view próprio e uma track de áudio da libobs (4–6):
   máximo 3 ISO com áudio em simultâneo. Ficheiros em `<pasta de gravação>/iso/<nome> <data>.mp4`.
 - `input.update {category}` (motor libobs): categoria da faixa (`cameras | vt | graphics | calls | audio`; null remove e volta à deduzida pelo tipo); campo `InputState.category`.
+- Replay (motor libobs, plugin Replay Source do Exeldro, GPL-2): estado em `replay {bufferSeconds, angles, inputId, loadedAngle, speedPercent, paused, onAir, liveInput, memoryMB, status}`
+  (`status`: `idle | buffering | loaded | unavailable`, o último quando o plugin não carregou). A fonte "Replay" é um input normal de `kind: "replay"`
+  (`config {}`), criado pelo motor quando há ângulos armados; `input.remove` dessa fonte limpa `replay.inputId`.
+  Comandos: `replay.setup {bufferSeconds?, angles?}` (arma os ângulos com filtros de replay por fonte; `CAPABILITY_MISSING` sem plugin,
+  `MEMORY_BUDGET` acima de 2500 MB estimados), `replay.capture {inputId}` (carrega o lance do ângulo), `replay.setSpeed {percent}` (1..400),
+  `replay.pause {on}`, `replay.restart`, `replay.next`, `replay.previous`, `replay.onAir` (guarda o Program em `liveInput` e faz cut da fonte Replay),
+  `replay.backToLive` (cut de volta a `liveInput`), `replay.clear`. Os buffers são frames sem compressão em RAM:
+  `memoryMB ≈ Σ ângulos (bufferSeconds × largura × altura × bytes/px × fps) + 2 lances guardados`, com 1,5 bytes/px (NV12) nas fontes
+  assíncronas (ficheiros, câmaras) e 4 (BGRA) no NDI e nas fontes síncronas (cor, títulos); fps do raster como majorante.
+  `replay.capture` recusa com `NOT_RUNNING` se o buffer do ângulo ainda está a encher (menos de 5 frames) ou se o plugin não
+  carregou o lance; `input.add {kind: "replay"}` é recusado (a fonte Replay só nasce em `replay.setup`); `media.*` sobre a fonte
+  Replay é recusado (`INVALID_PARAMS`: usar `replay.pause`/`replay.restart`); `replay.backToLive` só corta quando a fonte Replay
+  está em Program (senão limpa `onAir`/`liveInput` e não mexe no Program) e, sem `liveInput` válido, volta ao Preview.
+  Desarmar o ângulo do lance carregado (ou removê-lo) põe `loadedAngle` a null; o lance continua na fonte Replay até `replay.clear`.

@@ -83,9 +83,14 @@ export function SourcesPanel({ run }: { run: Run }) {
             </span>
             {i.media && (
               <span className="transporte">
-                <button className="btn btn-x" onClick={() => run(i.media!.state === "playing" ? "media.pause" : "media.play", { inputId: i.id, txnId: newTxnId() })}>{i.media.state === "playing" ? "❚❚" : "▶"}</button>
-                <button className="btn btn-x" onClick={() => run("media.stop", { inputId: i.id, txnId: newTxnId() })}>■</button>
-                <button className={i.media.loop ? "btn btn-x btn-sel" : "btn btn-x"} title="Repetir" onClick={() => run("media.setLoop", { inputId: i.id, loop: !i.media!.loop })}>↻</button>
+                {/* A fonte Replay é comandada pelo painel Replay (replay.*): os comandos media.* desalinhariam o estado do lance. */}
+                {i.kind !== "replay" && (
+                  <>
+                    <button className="btn btn-x" onClick={() => run(i.media!.state === "playing" ? "media.pause" : "media.play", { inputId: i.id, txnId: newTxnId() })}>{i.media.state === "playing" ? "❚❚" : "▶"}</button>
+                    <button className="btn btn-x" onClick={() => run("media.stop", { inputId: i.id, txnId: newTxnId() })}>■</button>
+                    <button className={i.media.loop ? "btn btn-x btn-sel" : "btn btn-x"} title="Repetir" onClick={() => run("media.setLoop", { inputId: i.id, loop: !i.media!.loop })}>↻</button>
+                  </>
+                )}
                 <span className="muted small">{i.media.positionSeconds.toFixed(1)} / {i.media.durationSeconds.toFixed(1)} s</span>
               </span>
             )}
@@ -349,7 +354,7 @@ const PAGES: { id: SettingsPage; label: string; icon: string }[] = [
   { id: "audio", label: "Áudio", icon: "🎚" }, { id: "projector", label: "Projector", icon: "🖥" }, { id: "atalhos", label: "Atalhos", icon: "⌨" },
   { id: "rede", label: "Rede e dispositivos", icon: "🌐" }, { id: "motor", label: "Motor e registo", icon: "⚙" },
 ];
-const SHORTCUTS: [string, string][] = [["1–9", "Fonte N para Preview"], ["Enter", "Cut"], ["Espaço", "Fade (duração da coluna)"], ["F", "Fade to black"], ["Esc", "Fechar janela / projector"], ["Duplo clique na miniatura", "Cut directo"]];
+const SHORTCUTS: [string, string][] = [["1–9", "Fonte N para Preview"], ["Enter", "Cut"], ["Espaço", "Fade (duração da coluna)"], ["F", "Fade to black"], ["R", "Replay: no ar / voltar ao vivo (com a fonte Replay criada)"], ["⇧1–⇧9", "Replay: capturar lance do ângulo N"], ["[", "Replay a 50 % (câmara lenta)"], ["]", "Replay a 100 %"], ["Esc", "Fechar janela / projector"], ["Duplo clique na miniatura", "Cut directo"]];
 
 /** Painel de definições com barra lateral, à maneira do vMix (categorias) e do OBS (páginas); só mostra o que o motor suporta. */
 export function SettingsPanel({ run, engineUrl }: { run: Run; engineUrl: string }) {

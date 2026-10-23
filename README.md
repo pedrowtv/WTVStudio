@@ -79,6 +79,8 @@ MultiCorder (2026-10-23): gravação ISO por fonte (dock Saídas → MultiCorder
 
 Categorias (2026-10-23): a faixa de fontes tem separadores Todas / Câmaras / VT / Gráficos / Chamadas / Áudio com contagens e cores; a categoria é deduzida do tipo da fonte e pode mudar-se no ⚙ do cartão (campo `category`, guardado no motor). Os números das fontes mantêm-se globais ao filtrar. Referências externas analisadas em [docs/REFERENCIAS.md](docs/REFERENCIAS.md).
 
+Replay (2026-10-23): o plugin **Replay Source** do Exeldro (GPL-2) é compilado à parte contra a nossa libobs (`engine-obs/third_party/obs-replay-source`, com a frontend-api stubada porque não há UI Qt) e entra no bundle como `replay-source.plugin`. O motor arma ângulos (filtros de replay por fonte, buffer de N segundos em RAM), cria a fonte "Replay" e expõe `replay.*` (capturar lance por ângulo, câmara lenta 25/50/100 %, pausa, reiniciar, lances anteriores/seguintes, NO AR e voltar ao vivo). Dock Replay e botão na barra inferior; atalhos R (no ar/voltar), [ e ] (50 %/100 %). O painel mostra a memória estimada dos buffers (frames sem compressão: ~0,4 GB por segundo e por ângulo a 1080p50).
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

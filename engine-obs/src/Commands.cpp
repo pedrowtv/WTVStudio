@@ -1,6 +1,7 @@
 #include "Commands.h"
 #include "NDI.h"
 #include "Projector.h"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <random>
@@ -21,8 +22,8 @@ static std::string nowIso() {
 
 static std::string idOrEmpty(const json &v) { return v.is_string() ? v.get<std::string>() : ""; }
 
-Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
-    : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
+Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, Replay &replay, std::string v)
+    : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), replay_(replay), version_(std::move(v)) {
     store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["audioIn"] = audio_.inputDevices(); s["devices"]["ndiSources"] = NDI::discover(0); s["devices"]["displays"] = Projector::displays(); });
 }
 
@@ -68,6 +69,13 @@ void Commands::syncMultiview() {
     std::string pvw = s["preview"]["inputId"].is_string() ? s["preview"]["inputId"].get<std::string>() : "";
     sw_.rebuildMultiview(s["multiview"]["tiles"], pvw);
     applyAudio(); // o que está no ar mudou: refaz as máscaras de áudio (AFV + ISO)
+    // Replay: `onAir` segue o Program (um cut normal para fora da fonte Replay termina o "no ar")
+    std::string rid = s.contains("replay") ? idOrEmpty(s["replay"]["inputId"]) : "";
+    if (!rid.empty()) {
+        bool onAir = idOrEmpty(s["program"]["inputId"]) == rid;
+        if (onAir != s["replay"].value("onAir", false))
+            store_.mutate([&](json &st) { st["replay"]["onAir"] = onAir; if (!onAir) st["replay"]["liveInput"] = nullptr; });
+    }
 }
 
 
@@ -95,22 +103,32 @@ void Commands::onTransitionDone() {
 
 void Commands::tickMedia() {
     json s = store_.state();
-    std::vector<std::string> mediaIds, liveIds;
+    std::vector<std::string> mediaIds, liveIds, replayIds;
     for (auto &[id, in] : s["inputs"].items()) {
         std::string kind = in.value("kind", "");
         if (kind == "media" || kind == "playlist") mediaIds.push_back(id);
+        else if (kind == "replay") replayIds.push_back(id);
         else if (kind != "synthetic" && kind != "title" && kind != "audioDevice") liveIds.push_back(id);
     }
-    if (mediaIds.empty() && liveIds.empty()) return;
+    if (mediaIds.empty() && liveIds.empty() && replayIds.empty()) return;
     std::map<std::string, Switcher::Media> info;
     for (auto &id : mediaIds) info[id] = sw_.mediaInfo(id);
-    std::map<std::string, bool> live;
+    std::map<std::string, bool> live, replayLive;
     for (auto &id : liveIds) live[id] = sw_.hasVideo(id);
+    for (auto &id : replayIds) { info[id] = sw_.mediaInfo(id); replayLive[id] = sw_.hasVideo(id); } // posição/duração do lance (já à velocidade actual)
     std::vector<std::string> outPointReached;
     store_.mutate([&](json &st) {
         for (auto &[id, m] : info) {
             if (!st["inputs"].contains(id)) continue;
             json &media = st["inputs"][id]["media"];
+            if (replayLive.count(id)) { // fonte Replay: live = há lance carregado; sem lance o plugin devolve a duração antiga → zera
+                bool loaded = st["replay"].value("status", "") == "loaded";
+                media["durationSeconds"] = loaded ? m.durationSeconds : 0;
+                media["positionSeconds"] = loaded ? m.positionSeconds : 0;
+                media["state"] = loaded ? m.state : "stopped";
+                st["inputs"][id]["status"] = replayLive[id] && loaded ? "live" : "starting";
+                continue;
+            }
             media["durationSeconds"] = m.durationSeconds;
             media["positionSeconds"] = m.positionSeconds;
             media["state"] = m.state;
@@ -130,6 +148,42 @@ void Commands::tickMedia() {
     for (auto &id : outPointReached) { try { dispatch("playlist.next", json{{"inputId", id}}); } catch (...) {} }
 }
 
+json Commands::addInput(const std::string &kind, const std::string &nameIn, const json &cfg) {
+    json config = cfg;
+    json s = store_.state();
+    std::string name = nameIn;
+    if (name.empty()) {
+        if (kind == "media" || kind == "image") { std::string path = config.value("path", ""); name = path.substr(path.find_last_of('/') + 1); }
+        else if (kind == "synthetic") name = config.value("pattern", "colour") == "bars" ? "Barras" : "Cor";
+        else if (kind == "title") name = "Título"; else if (kind == "playlist") name = "Playout"; else if (kind == "audioDevice") name = "Microfone"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
+        else name = kind;
+    }
+    std::string id = newId("in_"), err;
+    int rw = s["project"]["raster"]["width"], rh = s["project"]["raster"]["height"];
+    if (!sw_.addInput(id, kind, config, name, rw, rh, err)) throw RpcError{err, "não foi possível criar a fonte"};
+    bool hasAudio = kind == "media" || kind == "playlist" || kind == "camera" || kind == "srt" || kind == "ndi" || kind == "audioDevice" || kind == "replay";
+    store_.mutate([&](json &st) {
+        json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" || kind == "audioDevice" ? "live" : "starting"},
+                   {"latencyFrames", 0}, {"videoDelayFrames", 0}, {"fit", "fit"},
+                   {"colour", {{"brightness", 0}, {"contrast", 1}, {"saturation", 1}}}, {"lowBandwidth", false},
+                   {"config", config}, {"hasAudio", hasAudio}};
+        if (kind == "media" || kind == "playlist" || kind == "replay") in["media"] = {{"durationSeconds", 0}, {"positionSeconds", 0}, {"state", "stopped"}, {"loop", config.value("loop", false)}};
+        if (kind == "playlist") { if (!in["config"].contains("items")) in["config"]["items"] = json::array(); if (!in["config"].contains("index")) in["config"]["index"] = 0; if (!in["config"].contains("loopList")) in["config"]["loopList"] = true; }
+        st["inputs"][id] = in;
+        st["inputOrder"].push_back(id);
+        st["audio"]["inputs"][id] = defaultAudioChannel();
+        if (st["program"]["inputId"].is_null()) st["program"]["inputId"] = id;
+        else if (st["preview"]["inputId"].is_null()) st["preview"]["inputId"] = id;
+        refreshMultiview(st);
+    });
+    json st = store_.state();
+    if (st["program"]["inputId"] == id) sw_.cut(id);
+    audio_.attach(id, sw_.sourceRef(id));
+    applyAudio(id);
+    syncMultiview();
+    return {{"inputId", id}};
+}
+
 json Commands::dispatch(const std::string &method, const json &p) {
     if (method == "session.hello") {
         return {{"protocolVersion", 1}, {"engineVersion", version_},
@@ -143,39 +197,9 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "input.add") {
         std::string kind = p.value("kind", "");
-        json config = p.value("config", json::object());
-        json s = store_.state();
-        std::string name = p.value("name", "");
-        if (name.empty()) {
-            if (kind == "media" || kind == "image") { std::string path = config.value("path", ""); name = path.substr(path.find_last_of('/') + 1); }
-            else if (kind == "synthetic") name = config.value("pattern", "colour") == "bars" ? "Barras" : "Cor";
-            else if (kind == "title") name = "Título"; else if (kind == "playlist") name = "Playout"; else if (kind == "audioDevice") name = "Microfone"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
-            else name = kind;
-        }
-        std::string id = newId("in_"), err;
-        int rw = s["project"]["raster"]["width"], rh = s["project"]["raster"]["height"];
-        if (!sw_.addInput(id, kind, config, name, rw, rh, err)) throw RpcError{err, "não foi possível criar a fonte"};
-        bool hasAudio = kind == "media" || kind == "playlist" || kind == "camera" || kind == "srt" || kind == "ndi" || kind == "audioDevice";
-        store_.mutate([&](json &st) {
-            json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" || kind == "audioDevice" ? "live" : "starting"},
-                       {"latencyFrames", 0}, {"videoDelayFrames", 0}, {"fit", "fit"},
-                       {"colour", {{"brightness", 0}, {"contrast", 1}, {"saturation", 1}}}, {"lowBandwidth", false},
-                       {"config", config}, {"hasAudio", hasAudio}};
-            if (kind == "media" || kind == "playlist") in["media"] = {{"durationSeconds", 0}, {"positionSeconds", 0}, {"state", "stopped"}, {"loop", config.value("loop", false)}};
-            if (kind == "playlist") { if (!in["config"].contains("items")) in["config"]["items"] = json::array(); if (!in["config"].contains("index")) in["config"]["index"] = 0; if (!in["config"].contains("loopList")) in["config"]["loopList"] = true; }
-            st["inputs"][id] = in;
-            st["inputOrder"].push_back(id);
-            st["audio"]["inputs"][id] = defaultAudioChannel();
-            if (st["program"]["inputId"].is_null()) st["program"]["inputId"] = id;
-            else if (st["preview"]["inputId"].is_null()) st["preview"]["inputId"] = id;
-            refreshMultiview(st);
-        });
-        json st = store_.state();
-        if (st["program"]["inputId"] == id) sw_.cut(id);
-        audio_.attach(id, sw_.sourceRef(id));
-        applyAudio(id);
-        syncMultiview();
-        return {{"inputId", id}};
+        // A fonte Replay é criada pelo motor em replay.setup (uma só, adoptada pelo módulo Replay); por protocolo seria órfã.
+        if (kind == "replay") throw RpcError{"INVALID_PARAMS", "a fonte Replay é criada por replay.setup"};
+        return addInput(kind, p.value("name", ""), p.value("config", json::object()));
     }
     if (method == "input.update") {
         std::string id = requireInput(p);
@@ -281,6 +305,8 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "media.play" || method == "media.pause" || method == "media.stop" || method == "media.seek" || method == "media.setLoop") {
         std::string id = requireInput(p);
+        if (store_.state()["inputs"][id].value("kind", "") == "replay") // o transporte do lance é replay.pause/restart (o estado replay.* seguiria desalinhado)
+            throw RpcError{"INVALID_PARAMS", "a fonte Replay controla-se com replay.pause/replay.restart"};
         sw_.mediaCommand(id, method, p);
         if (method == "media.setLoop") store_.mutate([&](json &st) { st["inputs"][id]["media"]["loop"] = p.value("loop", false); st["inputs"][id]["config"]["loop"] = p.value("loop", false); });
         tickMedia();
@@ -302,6 +328,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         std::string id = requireInput(p);
         out_.isoStop(id);
         audio_.detach(id);
+        replay_.onInputRemoved(id); // ângulo: sai de replay.angles; fonte Replay: desarma tudo e limpa replay.inputId
         sw_.removeInput(id);
         store_.mutate([&](json &st) {
             st["inputs"].erase(id);
@@ -569,6 +596,92 @@ json Commands::dispatch(const std::string &method, const json &p) {
     if (method == "devices.refresh") {
         json ndi = NDI::discover(1500), aout = audio_.monitoringDevices(), ain = audio_.inputDevices(), disp = Projector::displays();
         store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; st["devices"]["audioIn"] = ain; st["devices"]["displays"] = disp; });
+        return json::object();
+    }
+    if (method == "replay.setup") {
+        // Arma os ângulos (filtros de buffer) e cria a fonte "Replay" (kind "replay") se ainda não existir.
+        if (!replay_.available()) throw RpcError{"CAPABILITY_MISSING", "plugin Replay Source não carregado"};
+        json s = store_.state();
+        int bufferSeconds = p.value("bufferSeconds", s["replay"].value("bufferSeconds", 8));
+        if (bufferSeconds < 1 || bufferSeconds > 30) throw std::runtime_error("bufferSeconds 1..30");
+        std::vector<std::string> angles;
+        if (p.contains("angles")) {
+            if (!p["angles"].is_array()) throw std::runtime_error("angles: lista de inputIds");
+            for (auto &a : p["angles"]) { std::string id = a.is_string() ? a.get<std::string>() : ""; if (!id.empty() && std::find(angles.begin(), angles.end(), id) == angles.end()) angles.push_back(id); }
+        } else for (auto &a : s["replay"]["angles"]) angles.push_back(a.get<std::string>());
+        std::string rid = replay_.replayInputId();
+        for (auto &a : angles) {
+            if (!sw_.hasInput(a)) throw RpcError{"INPUT_NOT_FOUND", "ângulo não encontrado: " + a};
+            if (a == rid) throw std::runtime_error("a fonte Replay não pode ser ângulo de si própria");
+        }
+        double mb = replay_.estimateMemoryMB(bufferSeconds, angles);
+        if (mb > Replay::MEMORY_BUDGET_MB) throw RpcError{"MEMORY_BUDGET", "os buffers precisariam de ~" + std::to_string((int)mb) + " MB (limite " + std::to_string((int)Replay::MEMORY_BUDGET_MB) + " MB): reduz a duração, os ângulos ou a resolução"};
+        if (!angles.empty() && rid.empty()) {
+            json r = addInput("replay", "Replay", json::object());
+            rid = r.value("inputId", "");
+            replay_.attachReplayInput(rid);
+        }
+        std::string msg, err = replay_.setup(bufferSeconds, angles, msg);
+        if (!err.empty()) throw RpcError{err, msg};
+        return json::object();
+    }
+    if (method == "replay.capture") {
+        std::string id = requireInput(p);
+        std::string msg, err = replay_.capture(id, msg);
+        if (!err.empty()) throw RpcError{err, msg};
+        tickMedia();
+        return json::object();
+    }
+    if (method == "replay.setSpeed") {
+        double pct = p.value("percent", 100.0);
+        if (pct < 1 || pct > 400) throw std::runtime_error("percent 1..400");
+        replay_.setSpeed(pct);
+        return json::object();
+    }
+    if (method == "replay.pause") { replay_.pause(p.value("on", true)); return json::object(); }
+    if (method == "replay.restart") { replay_.restart(); return json::object(); }
+    if (method == "replay.next") { replay_.next(); return json::object(); }
+    if (method == "replay.previous") { replay_.previous(); return json::object(); }
+    if (method == "replay.clear") { replay_.clear(); tickMedia(); return json::object(); }
+    if (method == "replay.onAir") {
+        std::string rid = replay_.replayInputId();
+        if (rid.empty() || !sw_.hasInput(rid)) throw RpcError{"INPUT_NOT_FOUND", "não há fonte Replay (replay.setup primeiro)"};
+        json s = store_.state();
+        if (idOrEmpty(s["program"]["inputId"]) == rid) return json::object(); // já está no ar
+        replay_.prepareOnAir(); // recomeça do 1.º frame
+        store_.mutate([&](json &st) {
+            json live = st["program"]["inputId"];
+            st["replay"]["liveInput"] = live;
+            st["replay"]["onAir"] = true;
+            st["replay"]["paused"] = false;
+            st["program"]["inputId"] = rid;
+            st["program"]["transition"] = nullptr;
+            st["preview"]["inputId"] = live; // um CUT normal volta ao directo
+        });
+        sw_.cut(rid);
+        syncMultiview();
+        return json::object();
+    }
+    if (method == "replay.backToLive") {
+        json s = store_.state();
+        std::string rid = replay_.replayInputId();
+        if (rid.empty() || idOrEmpty(s["program"]["inputId"]) != rid) { // o Replay não está em Program: nada a cortar
+            store_.mutate([&](json &st) { st["replay"]["onAir"] = false; st["replay"]["liveInput"] = nullptr; });
+            return json::object();
+        }
+        std::string live = idOrEmpty(s["replay"]["liveInput"]);
+        if (live.empty() || live == rid || !s["inputs"].contains(live)) live = idOrEmpty(s["preview"]["inputId"]);
+        if (live == rid || !s["inputs"].contains(live)) live = ""; // sem directo conhecido fica como está (nunca a 1.ª fonte ao acaso)
+        store_.mutate([&](json &st) {
+            st["replay"]["onAir"] = false;
+            st["replay"]["liveInput"] = nullptr;
+            if (live.empty()) return;
+            st["program"]["inputId"] = live;
+            st["program"]["transition"] = nullptr;
+            if (!rid.empty()) st["preview"]["inputId"] = rid;
+        });
+        if (!live.empty()) sw_.cut(live);
+        syncMultiview();
         return json::object();
     }
     if (method == "preview.keyframe" || method == "project.save" || method == "project.load") {

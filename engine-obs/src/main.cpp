@@ -98,7 +98,9 @@ int main(int argc, char **argv) {
     Outputs outputs(store, rt);
     outputs.setNdiAvailable(NDI::available());
     outputs.setAudioEngine(&audio);
-    Commands cmd(store, sw, rt, outputs, audio, ENGINE_VERSION);
+    Replay replay(store, sw);
+    replay.init(); // plugin Replay Source: status "unavailable" se não carregou
+    Commands cmd(store, sw, rt, outputs, audio, replay, ENGINE_VERSION);
     sw.onTransitionDone = [&] { cmd.onTransitionDone(); };
     sw.onMediaEnded = [&](const std::string &id) { cmd.onMediaEnded(id); };
 
@@ -141,6 +143,7 @@ int main(int argc, char **argv) {
         server.stop();
         audio.shutdown();
         NDI::shutdown();
+        replay.shutdown();
         sw.shutdown();
         rt.stop();
     });

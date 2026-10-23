@@ -75,6 +75,8 @@ json defaultState(const std::string &engineVersion, const std::string &bind) {
         {"permissions", {{"camera", "unknown"}, {"microphone", "unknown"}, {"screen", "unknown"}, {"localNetwork", "unknown"}}},
         {"budget", {{"encoderCapacity1080pFps", 200}, {"encoderUsedPercent", 0}, {"memoryUsedMB", 0}, {"memoryLimitMB", 1800}}},
         {"alarms", json::array()},
+        {"replay", {{"bufferSeconds", 8}, {"angles", json::array()}, {"inputId", nullptr}, {"loadedAngle", nullptr}, {"speedPercent", 100},
+                    {"paused", false}, {"onAir", false}, {"liveInput", nullptr}, {"memoryMB", 0}, {"status", "idle"}}},
         {"system", {{"engineVersion", engineVersion}, {"pid", (int)getpid()}, {"startedAt", nowIso()}, {"bind", bind},
                     {"remoteAccess", false}, {"thermal", "nominal"}}},
     };

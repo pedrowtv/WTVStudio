@@ -15,6 +15,11 @@ export function Monitor({ bus, run }: { bus: "preview" | "program"; run: (m: str
   const input: InputState | undefined = inputId ? engine?.inputs[inputId] : undefined;
   const canvasRef = useTileCanvas(bus);
   const media = input?.media;
+  // A fonte Replay recusa media.* no motor (INVALID_PARAMS): o transporte do lance é replay.pause/replay.restart e não existe
+  // replay.seek, por isso o slider fica inerte (mantém o timecode) e Reiniciar/▶❚❚ passam a falar com o módulo Replay.
+  const isReplay = input?.kind === "replay";
+  const playing = media?.state === "playing";
+  const replayHint = "Controla-se no painel Replay (R, [, ])";
 
   return (
     <section className={`monitor monitor-${bus}`}>
@@ -42,19 +47,25 @@ export function Monitor({ bus, run }: { bus: "preview" | "program"; run: (m: str
           min={0}
           max={media ? Math.max(1, Math.round(media.durationSeconds * 10)) : 1}
           value={media ? Math.round(media.positionSeconds * 10) : 0}
-          disabled={!media || !input}
-          onChange={(e) => input && run("media.seek", { inputId: input.id, seconds: Number(e.target.value) / 10 })}
+          disabled={!media || !input || isReplay}
+          title={isReplay ? `Sem procura no lance — ${replayHint}` : undefined}
+          onChange={(e) => input && !isReplay && run("media.seek", { inputId: input.id, seconds: Number(e.target.value) / 10 })}
         />
-        <button className="btn" disabled={!media} onClick={() => input && run("media.seek", { inputId: input.id, seconds: 0 })}>
+        <button
+          className="btn"
+          disabled={!media}
+          title={isReplay ? "Voltar ao início do lance" : undefined}
+          onClick={() => input && (isReplay ? run("replay.restart", {}) : run("media.seek", { inputId: input.id, seconds: 0 }))}
+        >
           Reiniciar
         </button>
         <button
           className="btn btn-icon"
           disabled={!media}
-          onClick={() => input && run(media?.state === "playing" ? "media.pause" : "media.play", { inputId: input.id, txnId: newTxnId() })}
-          title={media?.state === "playing" ? "Pausa" : "Reproduzir"}
+          onClick={() => input && (isReplay ? run("replay.pause", { on: playing }) : run(playing ? "media.pause" : "media.play", { inputId: input.id, txnId: newTxnId() }))}
+          title={isReplay ? `${playing ? "Pausa" : "Retomar"} o lance — ${replayHint}` : playing ? "Pausa" : "Reproduzir"}
         >
-          {media?.state === "playing" ? "❚❚" : "▶"}
+          {playing ? "❚❚" : "▶"}
         </button>
       </div>
     </section>

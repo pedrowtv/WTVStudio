@@ -33,6 +33,10 @@ for p in "$BUILD"/plugins/*/RelWithDebInfo/*.plugin; do
   case "$n" in aja.plugin|obs-webrtc.plugin|obs-vst.plugin|mac-syphon.plugin|obs-x264.plugin|mac-avcapture-legacy.plugin) continue;; esac
   cp -RL "$p" "$APP/Contents/PlugIns/$n"
 done
+# Replay Source (engine-obs/third_party/obs-replay-source, compilado em ~/.cache/wtv-obs/replay-build; docs/INSTALACAO.md "Replay Source")
+REPLAY="$OBS/replay-build/replay-source.plugin"
+[[ -f "$REPLAY/Contents/MacOS/replay-source" ]] || { echo "Replay Source não compilado: $REPLAY (cmake -S engine-obs/third_party/obs-replay-source -B ~/.cache/wtv-obs/replay-build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build ~/.cache/wtv-obs/replay-build)"; exit 1; }
+cp -RL "$REPLAY" "$APP/Contents/PlugIns/replay-source.plugin"
 cp -R "$OBS/obs-studio/libobs/data/." "$APP/Contents/Resources/obs-data/"
 cp -R "$UI/." "$APP/Contents/Resources/ui/"
 # Remove as rpaths de desenvolvimento (senão a libobs carrega-se duas vezes: da cache e do bundle)

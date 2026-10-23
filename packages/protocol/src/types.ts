@@ -41,6 +41,8 @@ export interface EngineState {
   };
   outputs: Record<OutputId, OutputState>;
   recording: RecordingState;
+  /** Replay instantâneo (motor libobs, plugin Replay Source); ausente = motor sem suporte de replay. */
+  replay?: ReplayState;
   projector: { displayId: string | null; source: "program" | "multiview" | InputId; fullscreen: boolean };
   multiview: { layoutId: string; size: { width: number; height: number }; tiles: Tile[] };
   devices: {
@@ -83,7 +85,8 @@ export type InputKind =
   | "screen"
   | "ndi"
   | "srt"
-  | "decklink";
+  | "decklink"
+  | "replay";
 
 export type InputCategory = "cameras" | "vt" | "graphics" | "calls" | "audio";
 export const INPUT_CATEGORIES: { id: InputCategory; label: string; colour: string }[] = [
@@ -97,7 +100,7 @@ export const INPUT_CATEGORIES: { id: InputCategory; label: string; colour: strin
 export function defaultCategory(kind: InputKind): InputCategory {
   switch (kind) {
     case "camera": case "ndi": case "srt": case "decklink": case "screen": return "cameras";
-    case "media": case "playlist": return "vt";
+    case "media": case "playlist": case "replay": return "vt";
     case "audioDevice": return "audio";
     default: return "graphics";
   }
@@ -141,7 +144,8 @@ export type InputConfig =
   | ScreenConfig
   | NdiConfig
   | SrtConfig
-  | DeckLinkConfig;
+  | DeckLinkConfig
+  | ReplayConfig;
 
 export interface SyntheticConfig {
   pattern: "colour" | "bars" | "testPattern" | "sync";
@@ -202,6 +206,8 @@ export interface DeckLinkConfig {
   deviceIndex: number;
   mode?: string;
 }
+/** Fonte "Replay" (motor libobs, plugin Replay Source): sem parâmetros próprios; o estado vive em EngineState.replay. */
+export interface ReplayConfig {}
 
 export type TransitionKind = "cut" | "fade" | "wipe" | "dip" | "stinger";
 export type WipeDirection =
@@ -294,6 +300,29 @@ export interface RecordingState {
   folder?: string | null;
   /** MultiCorder (motor libobs): gravações ISO por fonte em curso. */
   iso?: Record<InputId, { status: "recording" | "stopping" | "idle" | "error"; file: string; startedAt: string; track: number }>;
+}
+
+/** Replay instantâneo: buffers por ângulo (filtros de replay) e uma fonte "Replay" que toca o lance capturado. */
+export interface ReplayState {
+  /** Duração do buffer por ângulo, em segundos (omissão 8, 1..30). */
+  bufferSeconds: number;
+  /** inputIds armados (têm filtro de replay). */
+  angles: InputId[];
+  /** id do input "Replay" (kind "replay"), criado pelo motor quando há ângulos. */
+  inputId: InputId | null;
+  /** Ângulo do último lance carregado. */
+  loadedAngle: InputId | null;
+  /** Velocidade de reprodução em percentagem: 25 | 50 | 100 (ou outra, 1..400). */
+  speedPercent: number;
+  paused: boolean;
+  /** O input Replay está em Program (replay.onAir). */
+  onAir: boolean;
+  /** Input que estava em Program antes de replay.onAir (para voltar ao vivo). */
+  liveInput: InputId | null;
+  /** Estimativa da RAM usada pelos buffers (bufferSeconds × ângulos × raster). */
+  memoryMB: number;
+  /** unavailable = plugin Replay Source não carregado. */
+  status: "idle" | "buffering" | "loaded" | "unavailable";
 }
 
 export interface Tile {

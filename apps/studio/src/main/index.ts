@@ -105,7 +105,7 @@ async function launchEngine(): Promise<EngineLocation> {
   return { url: `http://127.0.0.1:${DEFAULT_PORT}`, token: null, source: "none" };
 }
 
-const PANEL_SIZE: Record<string, [number, number]> = { audio: [1100, 640], definicoes: [1040, 700], playout: [980, 620], saidas: [760, 600], fontes: [760, 560], overlays: [760, 520] };
+const PANEL_SIZE: Record<string, [number, number]> = { audio: [1100, 640], definicoes: [1040, 700], playout: [980, 620], saidas: [760, 600], fontes: [760, 560], overlays: [760, 520], replay: [1000, 640] };
 let mainWindow: BrowserWindow | null = null;
 let engineToken: string | null = null;
 function logLine(...parts: unknown[]): void {
