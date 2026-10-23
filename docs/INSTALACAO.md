@@ -107,3 +107,27 @@ Sem `--dev` o motor gera um token novo, escreve `~/Library/Application Support/W
 `?token=` ou `Authorization: Bearer`, e recusam `Origin` que não seja a própria UI ou o Vite de desenvolvimento.
 O Electron espera até 60 s pelo `engine.json` porque a libobs demora 10–20 s a carregar módulos e shaders.
 Verificado nesta máquina (2026-10-23): a app lança o motor pelo LaunchServices (pai `launchd`), abre sessão e liga o preview.
+
+## ffplayout como playout externo (Rust, GPL-3, processo separado)
+
+O ffplayout corre como processo próprio e entrega MPEG-TS por UDP ao motor; nenhum código dele entra no WTV Studio (licenças GPL-2 vs GPL-3). Compilar e inicializar nesta máquina:
+
+```bash
+brew install rust
+git clone --depth 1 https://github.com/ffplayout/ffplayout.git ~/.cache/wtv-ffplayout/ffplayout
+cd ~/.cache/wtv-ffplayout/ffplayout && cargo build --release --no-default-features   # sem frontend web (precisava de Node a funcionar)
+D=~/.cache/wtv-ffplayout/data; mkdir -p $D/storage/filler $D/logs $D/public $D/playlists
+script -q /dev/null target/release/ffplayout -i --username admin --mail admin@waytv.pt --password … --two-factor false \
+  --smtp-server mail.example.org --smtp-user none --smtp-password none --smtp-starttls false --smtp-port 587 \
+  --storage $D/storage --logs $D/logs --public $D/public --playlists $D/playlists --db $D/ffplayout.db --listen 127.0.0.1:8787
+cd $D && ../ffplayout/target/release/ffplayout --db $D/ffplayout.db --channel 1 --dump-config     # → ffplayout_1.toml
+```
+
+No `ffplayout_1.toml`: `[output] mode = "stream"`, `stream_type = "udp"`, `stream_url = "udp://127.0.0.1:9100?pkt_size=1316"`,
+`[playlist] day_start = "00:00:00"`, `[recording] path` para uma pasta nossa; depois `--channel 1 --import-config ffplayout_1.toml`.
+SRT não funciona aqui porque o FFmpeg do Homebrew não tem libsrt ("Protocol not found"); UDP em loopback chega.
+Playlists em `data/playlists/AAAA/MM/AAAA-MM-DD.json`, o mesmo formato que o Playout interno importa e exporta.
+
+Arranque: `tools/ffplayout-wtv.sh folder <pasta>` ou `tools/ffplayout-wtv.sh playlist`; no WTV Studio, Fontes → **ffplayout…** (udp://127.0.0.1:9100).
+Verificado nesta máquina (2026-10-23): pasta de clips em ciclo a chegar ao Program a 1080p com áudio; a entrada só pode existir uma vez por porto UDP.
+Nota: a compilação com o frontend embutido falhou porque o Node do Homebrew estava sem a libllhttp; `brew reinstall node` resolve.
