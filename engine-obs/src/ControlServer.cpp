@@ -1,5 +1,6 @@
 #include "ControlServer.h"
 #include <cstring>
+#include <random>
 
 struct WsTag { ControlServer *server; bool preview; };
 
@@ -33,10 +34,82 @@ static int replyJson(mg_connection *c, const std::string &body) {
     return 200;
 }
 
-int ControlServer::apiSession(mg_connection *c, void *) { return replyJson(c, R"({"ok":true,"dev":true})"); }
+static std::string randomHex(int bytes) {
+    static std::random_device rd; std::string s;
+    for (int i = 0; i < bytes; i++) { unsigned v = rd() & 0xFF; char b[3]; snprintf(b, sizeof b, "%02x", v); s += b; }
+    return s;
+}
+
+bool ControlServer::constantEquals(const std::string &a, const std::string &b) {
+    if (a.size() != b.size()) return false;
+    unsigned char d = 0;
+    for (size_t i = 0; i < a.size(); i++) d |= (unsigned char)(a[i] ^ b[i]);
+    return d == 0;
+}
+
+static std::string cookieValue(const char *header, const std::string &name) {
+    if (!header) return "";
+    std::string h = header; size_t p = 0;
+    while (p < h.size()) {
+        size_t e = h.find(';', p); if (e == std::string::npos) e = h.size();
+        std::string part = h.substr(p, e - p);
+        size_t s = part.find_first_not_of(' '); if (s != std::string::npos) part = part.substr(s);
+        if (part.rfind(name + "=", 0) == 0) return part.substr(name.size() + 1);
+        p = e + 1;
+    }
+    return "";
+}
+
+static std::string queryValue(const char *qs, const std::string &key) {
+    if (!qs) return "";
+    char buf[256];
+    int n = mg_get_var(qs, strlen(qs), key.c_str(), buf, sizeof buf);
+    return n > 0 ? std::string(buf, n) : "";
+}
+
+int ControlServer::apiSession(mg_connection *c, void *p) {
+    auto *self = static_cast<ControlServer *>(p);
+    if (self->cfg_.token.empty()) return replyJson(c, R"({"ok":true,"dev":true})");
+    char body[1024] = {0};
+    int n = mg_read(c, body, sizeof body - 1);
+    std::string given;
+    if (n > 0) { json j = json::parse(std::string(body, n), nullptr, false); if (j.is_object()) given = j.value("token", ""); }
+    if (given.empty()) { const char *auth = mg_get_header(c, "Authorization"); if (auth && strncmp(auth, "Bearer ", 7) == 0) given = auth + 7; }
+    if (!constantEquals(given, self->cfg_.token)) { mg_send_http_error(c, 401, "token inválido"); return 401; }
+    std::string sid = randomHex(16);
+    { std::lock_guard l(self->m_); self->sessions_.insert(sid); }
+    fprintf(stderr, "sessão criada por %s\n", mg_get_header(c, "User-Agent") ? mg_get_header(c, "User-Agent") : "?");
+    std::string resp = R"({"ok":true})";
+    mg_printf(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %zu\r\nSet-Cookie: wtv_session=%s; Path=/; HttpOnly; SameSite=Strict\r\nConnection: close\r\n\r\n%s", resp.size(), sid.c_str(), resp.c_str());
+    return 200;
+}
+
+bool ControlServer::authorised(const mg_connection *c) {
+    if (cfg_.token.empty()) return true;
+    const mg_request_info *ri = mg_get_request_info(c);
+    std::string sid = cookieValue(mg_get_header(c, "Cookie"), "wtv_session");
+    if (!sid.empty()) { std::lock_guard l(m_); if (sessions_.count(sid)) return true; }
+    std::string q = queryValue(ri->query_string, "token");
+    if (!q.empty() && constantEquals(q, cfg_.token)) return true;
+    const char *auth = mg_get_header(c, "Authorization");
+    if (auth && strncmp(auth, "Bearer ", 7) == 0 && constantEquals(auth + 7, cfg_.token)) return true;
+    return false;
+}
+
+bool ControlServer::originAllowed(const mg_connection *c) {
+    const char *origin = mg_get_header(c, "Origin");
+    if (!origin || !*origin) return true; // clientes não-browser
+    std::string o = origin, port = std::to_string(cfg_.port);
+    return o == "http://127.0.0.1:" + port || o == "http://localhost:" + port || o == "http://localhost:5173" || o == "null";
+}
 int ControlServer::apiHealth(mg_connection *c, void *) { return replyJson(c, R"({"ok":true})"); }
 
-int ControlServer::wsConnect(const mg_connection *, void *) { return 0; }
+int ControlServer::wsConnect(const mg_connection *c, void *tag) {
+    auto *self = static_cast<WsTag *>(tag)->server;
+    if (!self->originAllowed(c)) { fprintf(stderr, "upgrade recusado: Origin %s\n", mg_get_header(c, "Origin")); return 1; }
+    if (!self->authorised(c)) { fprintf(stderr, "upgrade recusado: sem sessão válida\n"); return 1; }
+    return 0;
+}
 
 void ControlServer::wsReady(mg_connection *c, void *tag) {
     auto *t = static_cast<WsTag *>(tag);

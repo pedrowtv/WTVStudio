@@ -12,7 +12,7 @@
 class ControlServer {
 public:
     using Handler = std::function<json(const json &request)>;
-    struct Config { std::string bind = "127.0.0.1"; int port = 7420; std::string uiDir; bool dev = true; };
+    struct Config { std::string bind = "127.0.0.1"; int port = 7420; std::string uiDir; bool dev = true; std::string token; /* vazio = --dev */ };
 
     bool start(const Config &cfg, Handler handler);
     void stop();
@@ -30,6 +30,10 @@ private:
     static int apiSession(mg_connection *, void *);
     static int apiHealth(mg_connection *, void *);
     void writeText(mg_connection *c, const std::string &s);
+    bool authorised(const mg_connection *c);   // cookie de sessão, token na query ou Bearer (D21)
+    bool originAllowed(const mg_connection *c);
+    static bool constantEquals(const std::string &a, const std::string &b);
+    std::set<std::string> sessions_;
 
     struct PreviewClient { mg_connection *conn; bool waitingKey = true; };
     Config cfg_;

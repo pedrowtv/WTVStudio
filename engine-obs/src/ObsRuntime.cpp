@@ -17,8 +17,10 @@ bool ObsRuntime::start(const ObsConfig &cfg) {
     if (!resetVideo(cfg.width, cfg.height, cfg.fpsNum, cfg.fpsDen)) return false;
     obs_audio_info oai{48000, SPEAKERS_STEREO};
     if (!obs_reset_audio(&oai)) return false;
-    obs_add_module_path((cfg.pluginsDir + "/%module%.plugin/Contents/MacOS").c_str(),
-                        (cfg.pluginsDir + "/%module%.plugin/Contents/Resources").c_str());
+    // Dentro de um .app a libobs já adiciona Contents/PlugIns (add_default_module_paths); adicionar outra vez carrega tudo duas vezes.
+    if (!cfg.pluginsDir.empty())
+        obs_add_module_path((cfg.pluginsDir + "/%module%.plugin/Contents/MacOS").c_str(),
+                            (cfg.pluginsDir + "/%module%.plugin/Contents/Resources").c_str());
     obs_load_all_modules();
     obs_post_load_modules();
     started_ = true;

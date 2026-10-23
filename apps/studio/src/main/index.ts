@@ -33,7 +33,9 @@ function dataDir(): string {
 /** Caminho do bundle do motor: Contents/Helpers na app empacotada, engine/dist em desenvolvimento. */
 function engineBundlePath(): string {
   if (isPackaged) return resolve(process.resourcesPath, "..", "Helpers", "WTV Engine.app");
-  return resolve(__dirname, "..", "..", "..", "..", "engine", "dist", "WTV Engine.app");
+  const root = resolve(__dirname, "..", "..", "..", "..");
+  const obs = resolve(root, "engine-obs", "dist", "WTV Engine.app"); // motor libobs (D23); o Swift fica como alternativa
+  return existsSync(obs) ? obs : resolve(root, "engine", "dist", "WTV Engine.app");
 }
 
 /** Pasta com a UI construída, servida pelo motor em /. */
@@ -92,8 +94,8 @@ async function launchEngine(): Promise<EngineLocation> {
   const args = ["--port", String(DEFAULT_PORT)];
   if (!isPackaged) args.push("--ui", uiPath());
   await openBundle(bundle, args);
-  // Espera até 15 s por engine.json + health
-  for (let i = 0; i < 60; i++) {
+  // Espera até 60 s por engine.json + health (a libobs demora 10–20 s a carregar módulos e shaders no arranque)
+  for (let i = 0; i < 240; i++) {
     await new Promise((r) => setTimeout(r, 250));
     const info = await readEngineInfo();
     if (info && info.pid && (await probe(`http://127.0.0.1:${info.port}`, info.token))) {

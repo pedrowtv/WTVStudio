@@ -27,6 +27,7 @@ src/Outputs.*        codificadores de Program partilhados (encode-once: VideoToo
                      e estado por sinais start/stop/reconnect; gravação via ffmpeg_muxer
 poc/                 prova de conceito inicial (cor + texto → mp4)
 run-dev.sh           arranca em modo --dev na porta 7421 a servir apps/studio/out/renderer
+scripts/make-app-bundle.sh  monta dist/WTV Engine.app (ver docs/INSTALACAO.md); bundle/ Info.plist e entitlements
 ```
 
 Compilar (depois do OBS; ver [docs/INSTALACAO.md](../docs/INSTALACAO.md)):
@@ -50,6 +51,7 @@ um loop de vídeo que escurece as cores a cada volta; não é defeito do motor. 
 da NewTek (ver docs/AMBIENTE.md) ou de `WTV_NDI_PATH`. OMT (Open Media Transport, MIT): a libomt é um wrapper C sobre
 um binário .NET pré-compilado (libomt + libvmx .dylib); fica para carregar por dlopen como o NDI quando houver release
 estável para macOS arm64.
+Empacotamento feito: WTV Engine.app com token/cookie/Origin, engine.json e log; a app Electron lança-o e liga.
 Por fazer: parâmetros dos filtros (sem janela própria),
 ganho Master,
 projector, token/cookie fora de `--dev`, engine.json para o Electron, empacotamento em `WTV Engine.app`.

@@ -85,3 +85,25 @@ DYLD_FRAMEWORK_PATH=~/.cache/wtv-obs/build/libobs/RelWithDebInfo DYLD_LIBRARY_PA
 ```
 
 Resultado verificado nesta máquina (2026-10-23): 1080p50 H.264 (`com.apple.videotoolbox.videoencoder.ave.avc`) + AAC (CoreAudio), 251 frames em 5 s sem frames perdidos com OpenGL; Metal também grava (6 frames atrasados no arranque). Pendente: o processo ainda termina com SIGSEGV na thread de tarefas da libobs durante `obs_shutdown`, mesmo com `obs_wait_for_destroy_queue()`; não afecta o ficheiro gravado.
+
+## Empacotar o motor libobs (WTV Engine.app) e a app
+
+```bash
+npm run studio:build                       # UI em apps/studio/out/renderer
+cmake --build ~/.cache/wtv-obs/engine-build
+engine-obs/scripts/make-app-bundle.sh      # → engine-obs/dist/WTV Engine.app (assinatura ad-hoc; CODESIGN_IDENT=… para Developer ID)
+cd apps/studio && npx electron-builder --mac --arm64 --dir   # → release/mac-arm64/WTV Studio.app com o motor em Contents/Helpers
+```
+
+O bundle leva `libobs.framework`, os renderers OpenGL e Metal, as dylibs do obs-deps, os plugins em `Contents/PlugIns`
+(a libobs adiciona esse caminho sozinha dentro de um .app: o motor não o adiciona outra vez, senão cada plugin era carregado
+duas vezes), `obs-ffmpeg-mux` ao lado do executável, a UI em `Contents/Resources/ui` e os efeitos em `Contents/Resources/obs-data`.
+O script apaga as rpaths de desenvolvimento do executável e os ficheiros `._*` que o codesign volta a criar no exFAT.
+No exFAT o `du` mostra ~1,1 GB por causa dos clusters de 1 MB; o conteúdo real anda nos 250 MB.
+
+Sem `--dev` o motor gera um token novo, escreve `~/Library/Application Support/WTV Studio/engine.json` (0600) com
+`{pid, port, token, version, startedAt}`, regista em `~/Library/Logs/WTV Studio/engine-obs.log` e exige sessão:
+`POST /api/session {token}` devolve o cookie `wtv_session` (HttpOnly, SameSite=Strict); os WebSockets aceitam cookie,
+`?token=` ou `Authorization: Bearer`, e recusam `Origin` que não seja a própria UI ou o Vite de desenvolvimento.
+O Electron espera até 60 s pelo `engine.json` porque a libobs demora 10–20 s a carregar módulos e shaders.
+Verificado nesta máquina (2026-10-23): a app lança o motor pelo LaunchServices (pai `launchd`), abre sessão e liga o preview.
