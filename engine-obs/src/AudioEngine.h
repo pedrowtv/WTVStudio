@@ -27,6 +27,8 @@ public:
     std::string addPlugin(const std::string &inputId, const std::string &componentId, std::string &name, std::string &error);
     bool removePlugin(const std::string &inputId, const std::string &pluginId);
     bool setPluginBypass(const std::string &inputId, const std::string &pluginId, bool bypass);
+    /// Afinação global: filtro wtv_pitch_filter oculto em todos os canais (actuais e futuros).
+    void setGlobalTuning(bool enabled, double cents);
     json pluginParams(const std::string &inputId, const std::string &pluginId);          // {properties:[...], values:{...}}
     bool setPluginParams(const std::string &inputId, const std::string &pluginId, const json &params);
 
@@ -45,6 +47,7 @@ private:
         std::atomic<float> peak[2]{0, 0}, rms[2]{0, 0};
         bool forcedActive = false; // AFV desligado → obs_source_inc_active
         std::map<std::string, obs_source_t *> plugins;
+        obs_source_t *tuning = nullptr; // filtro global de afinação (não aparece na lista de plugins)
     };
     struct Track { std::atomic<float> peak[2]{0, 0}, rms[2]{0, 0}; };
     static void meterCb(void *param, const float magnitude[MAX_AUDIO_CHANNELS], const float peak[MAX_AUDIO_CHANNELS], const float inputPeak[MAX_AUDIO_CHANNELS]);
@@ -54,5 +57,7 @@ private:
     std::mutex m_;
     std::map<std::string, Channel *> channels_;
     Track tracks_[3];
+    bool tuningOn_ = false; double tuningCents_ = -31.766533;
+    void applyTuning(Channel *c);
     bool started_ = false;
 };

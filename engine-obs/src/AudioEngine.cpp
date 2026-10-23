@@ -18,6 +18,7 @@ void AudioEngine::shutdown() {
     for (auto &[id, c] : channels_) {
         if (c->meter) { obs_volmeter_detach_source(c->meter); obs_volmeter_destroy(c->meter); }
         for (auto &[pid, f] : c->plugins) { obs_source_filter_remove(c->src, f); obs_source_release(f); }
+        if (c->tuning) { obs_source_filter_remove(c->src, c->tuning); obs_source_release(c->tuning); }
         delete c;
     }
     channels_.clear();
@@ -53,6 +54,29 @@ void AudioEngine::attach(const std::string &id, obs_source_t *src) {
     obs_volmeter_attach_source(c->meter, src);
     obs_source_set_audio_mixers(src, BUS_MASTER);
     channels_[id] = c;
+    applyTuning(c);
+}
+
+void AudioEngine::applyTuning(Channel *c) {
+    if (tuningOn_) {
+        obs_data_t *d = obs_data_create();
+        obs_data_set_double(d, "cents", tuningCents_);
+        if (!c->tuning) {
+            c->tuning = obs_source_create_private("wtv_pitch_filter", "wtv-afinacao-global", d);
+            if (c->tuning) obs_source_filter_add(c->src, c->tuning);
+        } else obs_source_update(c->tuning, d);
+        obs_data_release(d);
+    } else if (c->tuning) {
+        obs_source_filter_remove(c->src, c->tuning);
+        obs_source_release(c->tuning);
+        c->tuning = nullptr;
+    }
+}
+
+void AudioEngine::setGlobalTuning(bool enabled, double cents) {
+    std::lock_guard l(m_);
+    tuningOn_ = enabled; tuningCents_ = cents;
+    for (auto &[id, c] : channels_) applyTuning(c);
 }
 
 void AudioEngine::detach(const std::string &id) {
@@ -62,6 +86,7 @@ void AudioEngine::detach(const std::string &id) {
     Channel *c = it->second;
     obs_volmeter_detach_source(c->meter); obs_volmeter_destroy(c->meter);
     for (auto &[pid, f] : c->plugins) { obs_source_filter_remove(c->src, f); obs_source_release(f); }
+    if (c->tuning) { obs_source_filter_remove(c->src, c->tuning); obs_source_release(c->tuning); }
     delete c;
     channels_.erase(it);
 }

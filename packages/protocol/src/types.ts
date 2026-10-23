@@ -36,6 +36,8 @@ export interface EngineState {
     master: { db: number; mute: boolean; limiter: boolean };
     monitor: { deviceId: string | null; db: number; bus: AudioBus };
     outputBus: Record<"stream" | "ndi", AudioBus>;
+    /** Afinação global (motor libobs): filtro de pitch em todos os canais; −31,77 cents = 432 Hz. */
+    tuning?: { enabled: boolean; cents: number };
   };
   outputs: Record<OutputId, OutputState>;
   recording: RecordingState;

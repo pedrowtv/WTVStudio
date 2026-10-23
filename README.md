@@ -65,7 +65,7 @@ Playout (2026-10-23): fonte "Playout" que toca uma lista de ficheiros em sequên
 
 Audio Mixer (2026-10-23): channel strips verticais à maneira do vMix/OBS: VU true-peak + RMS com retenção de pico e escala dBFS, fader vertical (duplo clique = 0 dB, roda = 0,5 dB), pan, envios M/A/B, AFV, mute/solo (solo escurece os outros), atraso, cadeia de plugins com bypass e parâmetros, strips Master/Bus A/Bus B com VU e atribuição a stream/NDI/monitor; entradas de áudio (microfones e interfaces, p. ex. Volt 2) adicionam-se no rodapé do mixer.
 
-Afinação 432 Hz (2026-10-23): plugin "Afinação 432 Hz (pitch)" no Audio Mixer (por canal; parâmetro em cents no ⚙, −31,77 = 432 Hz) implementado no motor (WSOLA), sem alterar a velocidade do áudio. Medido: 440 → 432,0 Hz.
+Afinação 432 Hz (2026-10-23): plugin "Afinação 432 Hz (pitch)" no Audio Mixer (por canal; parâmetro em cents no ⚙, −31,77 = 432 Hz) implementado no motor (WSOLA), sem alterar a velocidade do áudio. Medido: 440 → 432,0 Hz. Interruptor global em Definições → Áudio ("Afinação global": 432 Hz ligado/desligado, desvio em cents com predefinições 432/422,5/436/444 Hz) que se aplica a todos os canais, incluindo os adicionados depois; o mixer mostra um indicador "432 Hz" quando está activo.
 
 ## Plugins Audio Unit de terceiros
 

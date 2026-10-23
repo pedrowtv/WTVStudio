@@ -421,6 +421,13 @@ json Commands::dispatch(const std::string &method, const json &p) {
         applyAudio();
         return json::object();
     }
+    if (method == "audio.setTuning") {
+        bool on = p.value("on", false); double cents = p.value("cents", -31.766533);
+        if (cents < -200 || cents > 200) throw std::runtime_error("cents fora de −200..200");
+        store_.mutate([&](json &st) { st["audio"]["tuning"] = {{"enabled", on}, {"cents", cents}}; });
+        audio_.setGlobalTuning(on, cents);
+        return json::object();
+    }
     if (method == "audio.setOutputBus") {
         std::string which = p.value("output", "stream"), bus = p.value("bus", "master");
         int idx = bus == "a" ? 1 : bus == "b" ? 2 : 0;

@@ -244,6 +244,7 @@ export function AudioPanel({ run, meters }: { run: Run; meters: MeterReading[] }
           </select>
           <button className="btn btn-x" title="Procurar dispositivos" onClick={() => run("devices.refresh", {})}>↻</button>
         </label>
+        {engine.audio.tuning?.enabled && <span className="tally on" title="Afinação global activa (Definições → Áudio)">432 Hz</span>}
         {silent.length > 0 && <span className="muted small">Sem áudio: {silent.map((i) => i.name).join(", ")}</span>}
       </div>
     </div>
@@ -459,6 +460,20 @@ export function SettingsPanel({ run, engineUrl }: { run: Run; engineUrl: string 
               <select value={engine.audio.monitor.bus} onChange={(e) => run("audio.setMonitor", { bus: e.target.value })}>
                 <option value="master">ouve o Master</option><option value="a">ouve o Bus A</option><option value="b">ouve o Bus B</option>
               </select>
+            </label>
+            <h3>Afinação 432 Hz</h3>
+            <p className="hint">Baixa a afinação de todas as fontes de 440 Hz para 432 Hz (−31,77 cents) sem alterar a velocidade. Aplica-se automaticamente a cada canal, incluindo os que forem adicionados depois; acrescenta cerca de 40 ms de latência ao áudio.</p>
+            <label className="row"><span>Afinação global</span>
+              <button className={engine.audio.tuning?.enabled ? "btn btn-on" : "btn"} onClick={() => run("audio.setTuning", { on: !engine.audio.tuning?.enabled, cents: engine.audio.tuning?.cents ?? -31.766533 })}>{engine.audio.tuning?.enabled ? "432 Hz ligado" : "440 Hz (desligado)"}</button>
+            </label>
+            <label className="row"><span>Desvio</span>
+              <select value={String(engine.audio.tuning?.cents ?? -31.766533)} onChange={(e) => run("audio.setTuning", { on: engine.audio.tuning?.enabled ?? false, cents: Number(e.target.value) })}>
+                <option value="-31.766533">432 Hz (−31,77 cents)</option>
+                <option value="-70.672">422,5 Hz barroco (−70,67 cents)</option>
+                <option value="-15.6413">436 Hz (−15,64 cents)</option>
+                <option value="15.6413">444 Hz (+15,64 cents)</option>
+              </select>
+              <input type="number" step={0.01} min={-200} max={200} value={engine.audio.tuning?.cents ?? -31.766533} onChange={(e) => run("audio.setTuning", { on: engine.audio.tuning?.enabled ?? false, cents: Number(e.target.value) })} /> <span className="muted small">cents</span>
             </label>
             <h3>Matriz de barramentos</h3>
             <p className="hint">Como no vMix: cada fonte envia para Master, A e B. A e B servem para mix-minus (retorno sem o próprio apresentador) ou para o NDI levar um áudio diferente do stream.</p>
