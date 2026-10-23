@@ -67,6 +67,8 @@ Audio Mixer (2026-10-23): channel strips verticais à maneira do vMix/OBS: VU tr
 
 Afinação 432 Hz (2026-10-23): plugin "Afinação 432 Hz (pitch)" no Audio Mixer (por canal; parâmetro em cents no ⚙, −31,77 = 432 Hz) implementado no motor (WSOLA), sem alterar a velocidade do áudio. Medido: 440 → 432,0 Hz. Interruptor global em Definições → Áudio ("Afinação global": 432 Hz ligado/desligado, desvio em cents com predefinições 432/422,5/436/444 Hz) que se aplica a todos os canais, incluindo os adicionados depois; o mixer mostra um indicador "432 Hz" quando está activo.
 
+Audio Units no motor libobs (2026-10-23): os plugins instalados (Alpen CL, Prisma EQ Pro, Sonic Processor e os da Apple) voltam a aparecer no Audio Mixer ao lado dos filtros do OBS; o ⚙ abre a janela própria do plugin e os parâmetros também são editáveis por protocolo. Verificado: Alpen CL a comprimir um tom de −21 para −48 dBFS com o threshold no mínimo.
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

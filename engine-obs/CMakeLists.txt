@@ -25,10 +25,10 @@ FetchContent_MakeAvailable(json civetweb)
 target_compile_definitions(civetweb-c-library PRIVATE USE_WEBSOCKET NO_SSL)
 
 add_executable(wtv-engine
-  src/main.cpp src/ObsRuntime.cpp src/StateStore.cpp src/Switcher.cpp src/PreviewOutput.cpp src/ControlServer.cpp src/Commands.cpp src/Outputs.cpp src/AudioEngine.cpp src/NDI.cpp src/cndi/cndi.c src/Projector.mm src/PitchFilter.cpp)
+  src/main.cpp src/ObsRuntime.cpp src/StateStore.cpp src/Switcher.cpp src/PreviewOutput.cpp src/ControlServer.cpp src/Commands.cpp src/Outputs.cpp src/AudioEngine.cpp src/NDI.cpp src/cndi/cndi.c src/Projector.mm src/PitchFilter.cpp src/AudioUnitHost.mm)
 target_include_directories(wtv-engine PRIVATE "${OBS_FW}/Headers" "${OBS_SRC_DIR}/libobs" "${OBS_BUILD_DIR}/config" "${OBS_DEPS_DIR}/include")
-target_link_libraries(wtv-engine PRIVATE "${OBS_FW}/libobs" nlohmann_json::nlohmann_json civetweb-c-library "-framework AppKit" "-framework QuartzCore")
-set_source_files_properties(src/Projector.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+target_link_libraries(wtv-engine PRIVATE "${OBS_FW}/libobs" nlohmann_json::nlohmann_json civetweb-c-library "-framework AppKit" "-framework QuartzCore" "-framework AudioToolbox" "-framework CoreAudioKit")
+set_source_files_properties(src/Projector.mm src/AudioUnitHost.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 target_compile_definitions(wtv-engine PRIVATE WTV_OBS_BUILD_DIR="${OBS_BUILD_DIR}" WTV_OBS_SRC_DIR="${OBS_SRC_DIR}" WTV_OBS_DEPS_DIR="${OBS_DEPS_DIR}")
 set_target_properties(wtv-engine PROPERTIES BUILD_RPATH "${OBS_BUILD_DIR}/libobs/RelWithDebInfo;${OBS_DEPS_DIR}/lib")
 # O ffmpeg_muxer procura o auxiliar ao lado do executável.

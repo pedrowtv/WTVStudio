@@ -455,7 +455,16 @@ json Commands::dispatch(const std::string &method, const json &p) {
         });
         return json::object();
     }
-    if (method == "audio.getPluginParams" || method == "audio.openPluginUI") {
+    if (method == "audio.openPluginUI") {
+        std::string id = requireInput(p);
+        json s = store_.state(); std::string title = "Plugin";
+        for (auto &pl : s["audio"]["inputs"][id].value("plugins", json::array())) if (pl["id"] == p.value("pluginId", "")) title = pl.value("name", "Plugin") + " — " + s["inputs"][id].value("name", "");
+        if (audio_.openPluginWindow(id, p.value("pluginId", ""), title)) return {{"window", true}};
+        json r = audio_.pluginParams(id, p.value("pluginId", ""));
+        if (r.is_null()) throw RpcError{"INVALID_PARAMS", "plugin não encontrado"};
+        return r; // filtros da libobs: a UI mostra a caixa de parâmetros
+    }
+    if (method == "audio.getPluginParams") {
         std::string id = requireInput(p);
         json r = audio_.pluginParams(id, p.value("pluginId", ""));
         if (r.is_null()) throw RpcError{"INVALID_PARAMS", "plugin não encontrado"};

@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "AudioUnitHost.h"
 #include <cmath>
 #include <cstring>
 #include <random>
@@ -151,15 +152,16 @@ static const struct { const char *filter; const char *name; } kPlugins[] = {
 };
 
 json AudioEngine::catalogue() {
-    json out = json::array();
+    json out = AudioUnitHost::catalogue();
     for (auto &p : kPlugins) if (obs_get_latest_input_type_id(p.filter) || obs_is_source_configurable(p.filter) || std::string(p.filter) == "wtv_pitch_filter")
         out.push_back({{"id", std::string("obs:") + p.filter}, {"name", p.name}, {"manufacturer", "OBS"}});
     return out;
 }
 
 std::string AudioEngine::addPlugin(const std::string &id, const std::string &componentId, std::string &name, std::string &error) {
-    if (componentId.rfind("obs:", 0) != 0) { error = "CAPABILITY_MISSING"; return ""; }
-    std::string filterId = componentId.substr(4);
+    bool au = componentId.rfind("au:", 0) == 0;
+    if (!au && componentId.rfind("obs:", 0) != 0) { error = "CAPABILITY_MISSING"; return ""; }
+    std::string filterId = au ? "wtv_au_filter" : componentId.substr(4);
     std::lock_guard l(m_);
     auto it = channels_.find(id);
     if (it == channels_.end()) { error = "INPUT_NOT_FOUND"; return ""; }
@@ -167,6 +169,7 @@ std::string AudioEngine::addPlugin(const std::string &id, const std::string &com
     std::string pid = "pl_"; for (int i = 0; i < 6; i++) pid += "0123456789abcdef"[rng() % 16];
     obs_data_t *st = obs_data_create();
     if (filterId == "noise_suppress_filter") obs_data_set_string(st, "method", "rnnoise");
+    if (au) obs_data_set_string(st, "component", componentId.c_str());
     obs_source_t *f = obs_source_create_private(filterId.c_str(), pid.c_str(), st);
     obs_data_release(st);
     if (!f) { error = "DEVICE_UNAVAILABLE"; return ""; }
@@ -174,6 +177,7 @@ std::string AudioEngine::addPlugin(const std::string &id, const std::string &com
     it->second->plugins[pid] = f;
     name = filterId;
     for (auto &p : kPlugins) if (filterId == p.filter) name = p.name;
+    if (au) for (auto &u : AudioUnitHost::catalogue()) if (u["id"] == componentId) name = u["name"];
     return pid;
 }
 
@@ -255,6 +259,7 @@ json AudioEngine::pluginParams(const std::string &id, const std::string &pid) {
     auto f = it->second->plugins.find(pid);
     if (f == it->second->plugins.end()) return json();
     obs_source_t *filter = f->second;
+    if (AudioUnitHost::isAU(filter)) return AudioUnitHost::params(filter);
     obs_data_t *settings = obs_source_get_settings(filter);
     obs_data_t *defaults = obs_data_get_defaults(settings);
     json values = dataToJson(defaults);
@@ -296,6 +301,7 @@ bool AudioEngine::setPluginParams(const std::string &id, const std::string &pid,
     if (it == channels_.end()) return false;
     auto f = it->second->plugins.find(pid);
     if (f == it->second->plugins.end() || !params.is_object()) return false;
+    if (AudioUnitHost::isAU(f->second)) return AudioUnitHost::setParams(f->second, params);
     obs_data_t *d = obs_data_create();
     for (auto &[k, v] : params.items()) {
         if (v.is_boolean()) obs_data_set_bool(d, k.c_str(), v.get<bool>());
@@ -305,5 +311,15 @@ bool AudioEngine::setPluginParams(const std::string &id, const std::string &pid,
     }
     obs_source_update(f->second, d);
     obs_data_release(d);
+    return true;
+}
+
+bool AudioEngine::openPluginWindow(const std::string &id, const std::string &pid, const std::string &title) {
+    std::lock_guard l(m_);
+    auto it = channels_.find(id);
+    if (it == channels_.end()) return false;
+    auto f = it->second->plugins.find(pid);
+    if (f == it->second->plugins.end() || !AudioUnitHost::isAU(f->second)) return false;
+    AudioUnitHost::openWindow(f->second, title);
     return true;
 }

@@ -20,6 +20,9 @@ src/NDI.*            NDI sobre o shim `src/cndi` (libndi por dlopen, D17): fonte
                      descoberta de fontes (devices.ndiSources, actualizada de 5 em 5 s e em devices.refresh)
 src/Projector.*      janela AppKit com obs_display (Program, multiview ou fonte), ajustada ao raster; ecrã inteiro só em
                      ecrãs externos; Esc/Cmd+W fecham; o main thread corre o NSApp e o motor corre numa thread própria
+src/AudioUnitHost.*  Audio Units v2 alojados como filtro wtv_au_filter (formato float não intercalado 48 kHz, callback de entrada,
+                     AudioUnitRender por bloco), catálogo aufx/aumf (ids "au:tipo:subtipo:fabricante"), parâmetros via
+                     ParameterList/ParameterInfo e janela própria (vista Cocoa do plugin ou AUGenericView) no main thread
 src/PitchFilter.*    filtro de áudio próprio wtv_pitch_filter: afinação em cents sem alterar a velocidade (transposição por
                      reamostragem + WSOLA com procura de correlação); predefinição −31,77 cents = 440→432 Hz.
                      Verificado: tom 440 Hz gravado a 432,0 Hz; +100 cents → 466,2 Hz; latência ~40 ms

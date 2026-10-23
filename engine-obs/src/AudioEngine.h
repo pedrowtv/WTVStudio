@@ -29,6 +29,7 @@ public:
     bool setPluginBypass(const std::string &inputId, const std::string &pluginId, bool bypass);
     /// Afinação global: filtro wtv_pitch_filter oculto em todos os canais (actuais e futuros).
     void setGlobalTuning(bool enabled, double cents);
+    bool openPluginWindow(const std::string &inputId, const std::string &pluginId, const std::string &title); // só Audio Units
     json pluginParams(const std::string &inputId, const std::string &pluginId);          // {properties:[...], values:{...}}
     bool setPluginParams(const std::string &inputId, const std::string &pluginId, const json &params);
 

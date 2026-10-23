@@ -7,6 +7,7 @@
 #include "NDI.h"
 #include "Projector.h"
 #include "PitchFilter.h"
+#include "AudioUnitHost.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -84,6 +85,7 @@ int main(int argc, char **argv) {
     if (!rt.start(oc)) { fprintf(stderr, "libobs não arrancou\n"); return 1; }
     PreviewOutput::registerType();
     PitchFilter::registerType();
+    AudioUnitHost::registerType();
     NDI::load();
     NDI::registerTypes();
 

@@ -10,10 +10,12 @@ interface PluginProperty { name: string; description: string; type: "float" | "i
 
 /** Parâmetros de um filtro de áudio da libobs numa caixa de campos (sem janela própria do plugin). */
 async function editPluginParams(run: Run, inputId: string, pluginId: string, title: string): Promise<void> {
-  const r = (await run("audio.getPluginParams", { inputId, pluginId })) as { properties: PluginProperty[]; values: Record<string, unknown> } | undefined;
-  if (!r) return;
+  // Audio Units abrem a janela própria no motor; os filtros da libobs devolvem os parâmetros para esta caixa.
+  const r = (await run("audio.openPluginUI", { inputId, pluginId })) as { window?: boolean; properties?: PluginProperty[]; values?: Record<string, unknown> } | undefined;
+  if (!r || r.window || !r.properties || !r.values) return;
+  const values = r.values;
   const fields = r.properties.map((p) => {
-    const cur = r.values[p.name];
+    const cur = values[p.name];
     let label = p.description;
     if (p.type === "float" || p.type === "int") label += ` (${p.min} a ${p.max})`;
     if (p.type === "bool") label += " (sim/não)";
