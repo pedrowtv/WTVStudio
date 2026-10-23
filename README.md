@@ -63,6 +63,8 @@ Definições (2026-10-23): painel com barra lateral à maneira do vMix e página
 
 Playout (2026-10-23): fonte "Playout" que toca uma lista de ficheiros em sequência (in/out por item, repetir lista, saltar, seguinte), com painel próprio no botão Playout e importação/exportação no formato de playlist do ffplayout (adoptou-se só o formato: o ffplayout é GPL-3 e Rust, o OBS é GPL-2, não se mistura código). Limitação: o salto ao ponto in cai no keyframe anterior.
 
+Audio Mixer (2026-10-23): channel strips verticais à maneira do vMix/OBS: VU true-peak + RMS com retenção de pico e escala dBFS, fader vertical (duplo clique = 0 dB, roda = 0,5 dB), pan, envios M/A/B, AFV, mute/solo (solo escurece os outros), atraso, cadeia de plugins com bypass e parâmetros, strips Master/Bus A/Bus B com VU e atribuição a stream/NDI/monitor; entradas de áudio (microfones e interfaces, p. ex. Volt 2) adicionam-se no rodapé do mixer.
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

@@ -21,7 +21,7 @@ static std::string nowIso() {
 
 Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
     : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
-    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["ndiSources"] = NDI::discover(0); s["devices"]["displays"] = Projector::displays(); });
+    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["audioIn"] = audio_.inputDevices(); s["devices"]["ndiSources"] = NDI::discover(0); s["devices"]["displays"] = Projector::displays(); });
 }
 
 void Commands::applyAudio(const std::string &only) {
@@ -92,7 +92,7 @@ void Commands::tickMedia() {
     for (auto &[id, in] : s["inputs"].items()) {
         std::string kind = in.value("kind", "");
         if (kind == "media" || kind == "playlist") mediaIds.push_back(id);
-        else if (kind != "synthetic" && kind != "title") liveIds.push_back(id);
+        else if (kind != "synthetic" && kind != "title" && kind != "audioDevice") liveIds.push_back(id);
     }
     if (mediaIds.empty() && liveIds.empty()) return;
     std::map<std::string, Switcher::Media> info;
@@ -142,15 +142,15 @@ json Commands::dispatch(const std::string &method, const json &p) {
         if (name.empty()) {
             if (kind == "media" || kind == "image") { std::string path = config.value("path", ""); name = path.substr(path.find_last_of('/') + 1); }
             else if (kind == "synthetic") name = config.value("pattern", "colour") == "bars" ? "Barras" : "Cor";
-            else if (kind == "title") name = "Título"; else if (kind == "playlist") name = "Playout"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
+            else if (kind == "title") name = "Título"; else if (kind == "playlist") name = "Playout"; else if (kind == "audioDevice") name = "Microfone"; else if (kind == "camera") name = "Câmara"; else if (kind == "screen") name = "Ecrã";
             else name = kind;
         }
         std::string id = newId("in_"), err;
         int rw = s["project"]["raster"]["width"], rh = s["project"]["raster"]["height"];
         if (!sw_.addInput(id, kind, config, name, rw, rh, err)) throw RpcError{err, "não foi possível criar a fonte"};
-        bool hasAudio = kind == "media" || kind == "playlist" || kind == "camera" || kind == "srt" || kind == "ndi";
+        bool hasAudio = kind == "media" || kind == "playlist" || kind == "camera" || kind == "srt" || kind == "ndi" || kind == "audioDevice";
         store_.mutate([&](json &st) {
-            json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" ? "live" : "starting"},
+            json in = {{"id", id}, {"kind", kind}, {"name", name}, {"status", kind == "synthetic" || kind == "title" || kind == "image" || kind == "audioDevice" ? "live" : "starting"},
                        {"latencyFrames", 0}, {"videoDelayFrames", 0}, {"fit", "fit"},
                        {"colour", {{"brightness", 0}, {"contrast", 1}, {"saturation", 1}}}, {"lowBandwidth", false},
                        {"config", config}, {"hasAudio", hasAudio}};
@@ -522,8 +522,8 @@ json Commands::dispatch(const std::string &method, const json &p) {
         return json::object();
     }
     if (method == "devices.refresh") {
-        json ndi = NDI::discover(1500), aout = audio_.monitoringDevices(), disp = Projector::displays();
-        store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; st["devices"]["displays"] = disp; });
+        json ndi = NDI::discover(1500), aout = audio_.monitoringDevices(), ain = audio_.inputDevices(), disp = Projector::displays();
+        store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; st["devices"]["audioIn"] = ain; st["devices"]["displays"] = disp; });
         return json::object();
     }
     if (method == "preview.keyframe" || method == "project.save" || method == "project.load") {

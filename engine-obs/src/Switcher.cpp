@@ -141,6 +141,9 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
         obsId = "screen_capture";
         obs_data_set_int(s, "type", 0);
         obs_data_set_bool(s, "show_cursor", c.value("showCursor", true));
+    } else if (kind == "audioDevice") {
+        obsId = "coreaudio_input_capture";
+        obs_data_set_string(s, "device_id", c.value("uid", "default").c_str());
     } else if (kind == "ndi") {
         obsId = "wtv_ndi_source";
         obs_data_set_string(s, "source_name", c.value("sourceName", "").c_str());
@@ -196,6 +199,8 @@ void Switcher::updateInput(const std::string &id, const std::string &kind, const
         std::string text = c.value("template", "");
         if (c.contains("fields") && c["fields"].contains("text")) text = c["fields"]["text"].get<std::string>();
         obs_data_set_string(s, "text", text.c_str());
+    } else if (kind == "audioDevice") {
+        if (c.contains("uid")) obs_data_set_string(s, "device_id", c["uid"].get<std::string>().c_str());
     } else if (kind == "ndi") {
         if (c.contains("sourceName")) obs_data_set_string(s, "source_name", c["sourceName"].get<std::string>().c_str());
         if (c.contains("bandwidth")) obs_data_set_bool(s, "low_bandwidth", c["bandwidth"] == "lowest");

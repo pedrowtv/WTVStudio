@@ -32,6 +32,7 @@ public:
 
     static json catalogue();       // devices.audioUnits
     json monitoringDevices();      // devices.audioOut
+    json inputDevices();           // devices.audioIn (coreaudio_input_capture)
 
     /// Frame binário do stream 16: u16 count + count × {u8 índice, f16 peakL, peakR, rmsL, rmsR}; 255/254/253 = Master/A/B.
     std::vector<uint8_t> metersFrame(const json &inputOrder);

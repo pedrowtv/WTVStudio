@@ -96,6 +96,19 @@ void AudioEngine::setMonitorDevice(const std::string &deviceId) {
     obs_set_audio_monitoring_device(ctx.name.empty() ? deviceId.c_str() : ctx.name.c_str(), deviceId.c_str());
 }
 
+json AudioEngine::inputDevices() {
+    json out = json::array();
+    obs_properties_t *ps = obs_get_source_properties("coreaudio_input_capture");
+    if (!ps) return out;
+    obs_property_t *p = obs_properties_get(ps, "device_id");
+    for (size_t i = 0; p && i < obs_property_list_item_count(p); i++) {
+        std::string id = obs_property_list_item_string(p, i) ? obs_property_list_item_string(p, i) : "";
+        out.push_back({{"uid", id}, {"name", obs_property_list_item_name(p, i)}, {"channels", 2}, {"sampleRate", 48000}, {"isDefault", id == "default"}});
+    }
+    obs_properties_destroy(ps);
+    return out;
+}
+
 json AudioEngine::monitoringDevices() {
     json out = json::array();
     obs_enum_audio_monitoring_devices([](void *p, const char *name, const char *id) {

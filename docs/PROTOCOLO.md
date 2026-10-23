@@ -242,3 +242,4 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
   `playlist.next {inputId}`, `playlist.setLoop {inputId, on}`, `playlist.setItem {inputId, index, in?, out?, name?}`,
   `playlist.import {inputId, path}` / `playlist.export {inputId, path}` no formato do ffplayout (`channel`, `date`, `program[{in,out,duration,source}]`).
   Quando um ficheiro acaba (`media_ended`) ou chega ao `out`, passa ao seguinte; o salto ao `in` cai no keyframe anterior (precisão = GOP do ficheiro).
+- Entradas de áudio: `input.add {kind: "audioDevice", config: {uid}}` (coreaudio_input_capture; `devices.audioIn` lista os dispositivos, `uid: "default"` = predefinido).

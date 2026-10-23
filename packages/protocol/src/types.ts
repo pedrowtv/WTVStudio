@@ -76,6 +76,7 @@ export type InputKind =
   | "image"
   | "title"
   | "playlist"
+  | "audioDevice"
   | "camera"
   | "screen"
   | "ndi"
@@ -114,6 +115,7 @@ export type InputConfig =
   | ImageConfig
   | TitleConfig
   | PlaylistConfig
+  | AudioDeviceConfig
   | CameraConfig
   | ScreenConfig
   | NdiConfig
@@ -150,6 +152,10 @@ export interface PlaylistConfig {
   loopList: boolean;
   channel?: string;
   date?: string;
+}
+/** Entrada de áudio (microfone / interface) sem vídeo. */
+export interface AudioDeviceConfig {
+  uid: string;
 }
 export interface CameraConfig {
   uniqueId: string;

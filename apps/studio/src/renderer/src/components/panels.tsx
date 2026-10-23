@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { MeterReading, PlaylistConfig } from "@wtv/protocol";
 import { useStore } from "../store";
 import { newTxnId } from "../rpc";
@@ -101,12 +101,43 @@ export function SourcesPanel({ run }: { run: Run }) {
 
 // ---------------------------------------------------------------- Áudio
 
+const dbOf = (v: number) => 20 * Math.log10(Math.max(v, 1e-5));
+const pctOfDb = (db: number) => Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
+
+/** VU horizontal (miniaturas). */
 export function Meter({ reading }: { reading?: MeterReading }) {
-  const toPct = (v: number) => Math.max(0, Math.min(100, 100 + 20 * Math.log10(Math.max(v, 1e-5)) * (100 / 60)));
   return (
-    <span className="meter" title={reading ? `${(20 * Math.log10(Math.max(reading.peakL, 1e-5))).toFixed(1)} dBFS` : ""}>
-      <span className="meter-bar" style={{ width: `${toPct(reading?.peakL ?? 0)}%` }} />
-      <span className="meter-bar" style={{ width: `${toPct(reading?.peakR ?? 0)}%` }} />
+    <span className="meter" title={reading ? `${dbOf(reading.peakL).toFixed(1)} dBFS` : ""}>
+      <span className="meter-bar" style={{ width: `${pctOfDb(dbOf(reading?.peakL ?? 0))}%` }} />
+      <span className="meter-bar" style={{ width: `${pctOfDb(dbOf(reading?.peakR ?? 0))}%` }} />
+    </span>
+  );
+}
+
+const SCALE = [0, -6, -12, -18, -24, -36, -48, -60];
+
+/** VU vertical com pico (true peak) e RMS, retenção de pico 1,5 s e escala em dBFS. */
+function VMeter({ reading, id }: { reading?: MeterReading; id: string }) {
+  const hold = useRef<Record<string, { db: number; at: number }>>({});
+  const now = performance.now();
+  const ch = (peak: number, rms: number, key: string) => {
+    const pdb = dbOf(peak);
+    const h = hold.current[key];
+    if (!h || pdb >= h.db || now - h.at > 1500) hold.current[key] = { db: pdb, at: now };
+    const hdb = hold.current[key].db;
+    return (
+      <span className="vmeter-ch">
+        <span className="vmeter-rms" style={{ height: `${pctOfDb(dbOf(rms))}%` }} />
+        <span className={pdb > -1 ? "vmeter-peak clip" : "vmeter-peak"} style={{ height: `${pctOfDb(pdb)}%` }} />
+        <span className={hdb > -1 ? "vmeter-hold clip" : "vmeter-hold"} style={{ bottom: `${pctOfDb(hdb)}%` }} />
+      </span>
+    );
+  };
+  return (
+    <span className="vmeter" title={reading ? `pico ${dbOf(reading.peakL).toFixed(1)} / ${dbOf(reading.peakR).toFixed(1)} dBFS` : "sem sinal"}>
+      {ch(reading?.peakL ?? 0, reading?.rmsL ?? 0, id + "L")}
+      {ch(reading?.peakR ?? 0, reading?.rmsR ?? 0, id + "R")}
+      <span className="vmeter-scale">{SCALE.map((d) => <i key={d} style={{ bottom: `${pctOfDb(d)}%` }}>{d === 0 ? "0" : d}</i>)}</span>
     </span>
   );
 }
@@ -115,92 +146,107 @@ function Fader({ db, onChange }: { db: number; onChange: (db: number) => void })
   return <input type="range" className="fader" min={-60} max={12} step={0.5} value={db} title={`${db.toFixed(1)} dB`} onChange={(e) => onChange(Number(e.target.value))} />;
 }
 
+/** Fader vertical: duplo clique repõe 0 dB; a roda ajusta 0,5 dB. */
+function VFader({ db, onChange }: { db: number; onChange: (db: number) => void }) {
+  return (
+    <div className="vfader-wrap">
+      <input type="range" className="vfader" min={-60} max={12} step={0.5} value={db} onChange={(e) => onChange(Number(e.target.value))} onDoubleClick={() => onChange(0)} onWheel={(e) => { e.preventDefault(); onChange(Math.max(-60, Math.min(12, db + (e.deltaY < 0 ? 0.5 : -0.5)))); }} />
+    </div>
+  );
+}
+
+const KIND_ICON: Record<string, string> = { media: "🎞", playlist: "📼", camera: "📷", screen: "🖥", ndi: "🌐", srt: "📡", audioDevice: "🎤", synthetic: "▦", title: "T", image: "🖼", decklink: "⬛" };
+
+/** Mixer de áudio por channel strips (vMix/OBS): VU true-peak + RMS, fader vertical, pan, buses, AFV, plugins. */
 export function AudioPanel({ run, meters }: { run: Run; meters: MeterReading[] }) {
   const engine = useStore((s) => s.engine);
   if (!engine) return null;
-  const inputs = engine.inputOrder.map((id) => engine.inputs[id]).filter(Boolean);
+  const inputs = engine.inputOrder.map((id) => engine.inputs[id]).filter((i) => i && i.hasAudio);
+  const silent = engine.inputOrder.map((id) => engine.inputs[id]).filter((i) => i && !i.hasAudio);
+  const reading = (idx: number) => meters.find((m) => m.inputIndex === idx);
+  const anySolo = Object.values(engine.audio.inputs).some((a) => a.solo);
   return (
-    <>
-      <h3>Canais</h3>
-      <ul className="lista small">
+    <div className="mixer">
+      <div className="mixer-strips">
         {inputs.map((i) => {
           const a = engine.audio.inputs[i.id];
-          const idx = engine.inputOrder.indexOf(i.id); // índice do VU = posição em inputOrder (PROTOCOLO §5)
+          const idx = engine.inputOrder.indexOf(i.id);
           const buses = a?.buses ?? ["master"];
+          const db = a?.db ?? 0;
+          const dimmed = anySolo && !a?.solo;
           return (
-            <li key={i.id} className="canal canal-bloco">
-              <div className="canal-linha">
-                <span className="nome">{i.name}</span>
-                <Meter reading={meters.find((m) => m.inputIndex === idx)} />
-                <Fader db={a?.db ?? 0} onChange={(db) => run("audio.setGain", { inputId: i.id, db })} />
-                <button className={a?.mute ? "btn btn-x btn-program" : "btn btn-x"} title="Mute" onClick={() => run("audio.setMute", { inputId: i.id, on: !a?.mute })}>M</button>
-                <button className={a?.solo ? "btn btn-x btn-sel" : "btn btn-x"} title="Solo" onClick={() => run("audio.setSolo", { inputId: i.id, on: !a?.solo })}>S</button>
-                <button className={a?.afv ? "btn btn-x btn-preview" : "btn btn-x"} title="Áudio segue vídeo" onClick={() => run("audio.setAFV", { inputId: i.id, on: !a?.afv })}>AFV</button>
-              </div>
-              <div className="canal-linha">
-                <span className="nome muted">Barramentos</span>
-                {(["master", "a", "b"] as const).map((b) => (
-                  <button key={b} className={buses.includes(b) ? "btn btn-x btn-sel" : "btn btx btn-x"} title={b === "master" ? "Master" : `Bus ${b.toUpperCase()}`} onClick={() => run("audio.setBus", { inputId: i.id, bus: b, on: !buses.includes(b) })}>{b === "master" ? "M" : b.toUpperCase()}</button>
-                ))}
-                <span className="nome muted" style={{ marginLeft: 12 }}>Plugins</span>
+            <div key={i.id} className={dimmed ? "strip-ch dim" : "strip-ch"}>
+              <div className="strip-name" title={i.name}><span className="ico">{KIND_ICON[i.kind] ?? "•"}</span>{i.name}</div>
+              <div className="strip-plugins">
                 {(a?.plugins ?? []).map((pl) => (
-                  <span key={pl.id} className="plugin-chip">
-                    <button className={pl.bypass ? "btn btn-x" : "btn btn-x btn-preview"} title={pl.bypass ? "Desligado (bypass)" : "Ligado"} onClick={() => run("audio.setPluginBypass", { inputId: i.id, pluginId: pl.id, on: !pl.bypass })}>{pl.name}</button>
-                    <button className="btn btn-x" title="Abrir parâmetros" onClick={() => void editPluginParams(run, i.id, pl.id, pl.name)}>⚙</button>
-                    <button className="btn btn-x" title="Remover" onClick={() => run("audio.removePlugin", { inputId: i.id, pluginId: pl.id })}>×</button>
+                  <span key={pl.id} className={pl.bypass ? "plugin-chip off" : "plugin-chip"}>
+                    <button title={pl.bypass ? "Desligado (bypass): clique para ligar" : "Ligado: clique para bypass"} onClick={() => run("audio.setPluginBypass", { inputId: i.id, pluginId: pl.id, on: !pl.bypass })}>{pl.name}</button>
+                    <button title="Parâmetros" onClick={() => void editPluginParams(run, i.id, pl.id, pl.name)}>⚙</button>
+                    <button title="Remover" onClick={() => run("audio.removePlugin", { inputId: i.id, pluginId: pl.id })}>×</button>
                   </span>
                 ))}
-                <select className="plugin-add" value="" onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) void run("audio.addPlugin", { inputId: i.id, componentId: v }); }}>
-                  <option value="">+ plugin…</option>
-                  {engine.devices.audioUnits.map((u) => (
-                    <option key={u.id} value={u.id}>{u.manufacturer}: {u.name}</option>
-                  ))}
+                <select className="plugin-add" value="" title="Adicionar plugin" onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) void run("audio.addPlugin", { inputId: i.id, componentId: v }); }}>
+                  <option value="">+ plugin</option>
+                  {engine.devices.audioUnits.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
-            </li>
+              <label className="strip-pan" title={`Pan ${a?.pan === 0 || !a ? "centro" : a.pan < 0 ? `E ${Math.round(-a.pan * 100)}%` : `D ${Math.round(a.pan * 100)}%`}`}>
+                <span>E</span><input type="range" min={-1} max={1} step={0.05} value={a?.pan ?? 0} onChange={(e) => run("audio.setPan", { inputId: i.id, pan: Number(e.target.value) })} onDoubleClick={() => run("audio.setPan", { inputId: i.id, pan: 0 })} /><span>D</span>
+              </label>
+              <div className="strip-buses">
+                {(["master", "a", "b"] as const).map((b) => (
+                  <button key={b} className={buses.includes(b) ? "on" : ""} title={b === "master" ? "Envia para o Master" : `Envia para o Bus ${b.toUpperCase()}`} onClick={() => run("audio.setBus", { inputId: i.id, bus: b, on: !buses.includes(b) })}>{b === "master" ? "M" : b.toUpperCase()}</button>
+                ))}
+                <button className={a?.afv ? "on afv" : "afv"} title="Áudio segue vídeo: só se ouve quando a fonte está no ar" onClick={() => run("audio.setAFV", { inputId: i.id, on: !a?.afv })}>AFV</button>
+              </div>
+              <div className="strip-main">
+                <VMeter reading={reading(idx)} id={i.id} />
+                <VFader db={db} onChange={(v) => run("audio.setGain", { inputId: i.id, db: v })} />
+              </div>
+              <input className="strip-db" type="number" step={0.5} min={-60} max={12} value={db} onChange={(e) => run("audio.setGain", { inputId: i.id, db: Number(e.target.value) })} />
+              <div className="strip-ms">
+                <button className={a?.mute ? "mute on" : "mute"} title="Mute" onClick={() => run("audio.setMute", { inputId: i.id, on: !a?.mute })}>M</button>
+                <button className={a?.solo ? "solo on" : "solo"} title="Solo (silencia os outros)" onClick={() => run("audio.setSolo", { inputId: i.id, on: !a?.solo })}>S</button>
+              </div>
+              <label className="strip-delay" title="Atraso para alinhar com o vídeo"><input type="number" min={0} max={2000} step={10} value={a?.delayMs ?? 0} onChange={(e) => run("audio.setDelay", { inputId: i.id, ms: Number(e.target.value) })} /> ms</label>
+            </div>
           );
         })}
-        <li className="canal">
-          <span className="nome"><strong>Master</strong></span>
-          <Meter reading={meters.find((m) => m.inputIndex === 255)} />
-          <Fader db={engine.audio.master.db} onChange={(db) => run("audio.setGain", { inputId: "master", db })} />
-          <button className={engine.audio.master.mute ? "btn btn-x btn-program" : "btn btn-x"} onClick={() => run("audio.setMute", { inputId: "master", on: !engine.audio.master.mute })}>M</button>
-        </li>
-        <li className="canal">
-          <span className="nome"><strong>Bus A</strong></span>
-          <Meter reading={meters.find((m) => m.inputIndex === 254)} />
-        </li>
-        <li className="canal">
-          <span className="nome"><strong>Bus B</strong></span>
-          <Meter reading={meters.find((m) => m.inputIndex === 253)} />
-        </li>
-      </ul>
-      <h3>Monitorização (auscultadores)</h3>
-      <div className="row">
-        <select value={engine.audio.monitor.deviceId ?? ""} onChange={(e) => run("audio.setMonitor", { deviceId: e.target.value || null })}>
-          <option value="">Dispositivo por omissão</option>
-          {engine.devices.audioOut.map((d) => (
-            <option key={d.uid} value={d.uid}>{d.name} ({d.sampleRate / 1000} kHz)</option>
-          ))}
-        </select>
-        <select value={engine.audio.monitor.bus} onChange={(e) => run("audio.setMonitor", { bus: e.target.value })}>
-          <option value="master">Ouvir Master</option>
-          <option value="a">Ouvir Bus A</option>
-          <option value="b">Ouvir Bus B</option>
-        </select>
+        {inputs.length === 0 && <div className="strip-empty muted">Sem fontes com áudio. Adicione um ficheiro, câmara, NDI ou um microfone (à direita).</div>}
+        <div className="strip-sep" />
+        {([["master", 255, "Master"], ["a", 254, "Bus A"], ["b", 253, "Bus B"]] as const).map(([bus, idx, label]) => (
+          <div key={bus} className="strip-ch strip-bus">
+            <div className="strip-name"><strong>{label}</strong></div>
+            <div className="strip-plugins muted small">
+              {bus === "master" ? "stream, gravação e NDI por omissão" : `${engine.audio.outputBus.stream === bus ? "stream · " : ""}${engine.audio.outputBus.ndi === bus ? "NDI · " : ""}${engine.audio.monitor.bus === bus ? "monitor" : ""}` || "livre"}
+            </div>
+            <div className="strip-buses">
+              <button className={engine.audio.outputBus.stream === bus ? "on" : ""} title="Este barramento alimenta o stream e a gravação" onClick={() => run("audio.setOutputBus", { output: "stream", bus })}>Stream</button>
+              <button className={engine.audio.outputBus.ndi === bus ? "on" : ""} title="Este barramento alimenta a saída NDI" onClick={() => run("audio.setOutputBus", { output: "ndi", bus })}>NDI</button>
+              <button className={engine.audio.monitor.bus === bus ? "on" : ""} title="Ouvir este barramento nos auscultadores" onClick={() => run("audio.setMonitor", { bus })}>🎧</button>
+            </div>
+            <div className="strip-main"><VMeter reading={reading(idx)} id={bus} /></div>
+            <div className="strip-ms">{bus === "master" && <button className={engine.audio.master.mute ? "mute on" : "mute"} onClick={() => run("audio.setMute", { inputId: "master", on: !engine.audio.master.mute })}>M</button>}</div>
+          </div>
+        ))}
       </div>
-      <h3>Barramento das saídas</h3>
-      <label className="row"><span>Stream e gravação</span>
-        <select value={engine.audio.outputBus.stream} onChange={(e) => run("audio.setOutputBus", { target: "stream", bus: e.target.value })}>
-          <option value="master">Master</option><option value="a">Bus A</option><option value="b">Bus B</option>
-        </select>
-      </label>
-      <label className="row"><span>NDI</span>
-        <select value={engine.audio.outputBus.ndi} onChange={(e) => run("audio.setOutputBus", { target: "ndi", bus: e.target.value })}>
-          <option value="master">Master</option><option value="a">Bus A</option><option value="b">Bus B</option>
-        </select>
-      </label>
-    </>
+      <div className="mixer-foot">
+        <label className="row"><span>Monitor</span>
+          <select value={engine.audio.monitor.deviceId ?? ""} onChange={(e) => run("audio.setMonitor", { deviceId: e.target.value || null })}>
+            <option value="">Dispositivo por omissão</option>
+            {engine.devices.audioOut.map((d) => <option key={d.uid} value={d.uid}>{d.name}</option>)}
+          </select>
+        </label>
+        <label className="row"><span>Microfone</span>
+          <select value="" onChange={(e) => { const uid = e.target.value; e.target.value = ""; if (uid) { const d = engine.devices.audioIn.find((x) => x.uid === uid); void run("input.add", { kind: "audioDevice", name: d?.name ?? "Microfone", config: { uid } }); } }}>
+            <option value="">+ adicionar entrada de áudio…</option>
+            {engine.devices.audioIn.map((d) => <option key={d.uid} value={d.uid}>{d.name}</option>)}
+          </select>
+          <button className="btn btn-x" title="Procurar dispositivos" onClick={() => run("devices.refresh", {})}>↻</button>
+        </label>
+        {silent.length > 0 && <span className="muted small">Sem áudio: {silent.map((i) => i.name).join(", ")}</span>}
+      </div>
+    </div>
   );
 }
 
