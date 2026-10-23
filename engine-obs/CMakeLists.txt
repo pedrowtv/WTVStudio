@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.28)
+project(wtv-engine-obs CXX C)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Build do obs-studio (docs/INSTALACAO.md, secção "Motor sobre a libobs")
+set(OBS_BUILD_DIR "$ENV{HOME}/.cache/wtv-obs/build" CACHE PATH "build do obs-studio")
+set(OBS_SRC_DIR "$ENV{HOME}/.cache/wtv-obs/obs-studio" CACHE PATH "fontes do obs-studio")
+set(OBS_DEPS_DIR "${OBS_SRC_DIR}/.deps/obs-deps-2025-08-23-universal" CACHE PATH "obs-deps pré-compiladas")
+set(OBS_FW "${OBS_BUILD_DIR}/libobs/RelWithDebInfo/libobs.framework")
+
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+include(FetchContent)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+set(CIVETWEB_ENABLE_WEBSOCKET ON CACHE BOOL "" FORCE)
+set(CIVETWEB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(CIVETWEB_ENABLE_CXX OFF CACHE BOOL "" FORCE)
+set(CIVETWEB_ENABLE_SSL OFF CACHE BOOL "" FORCE)
+set(CIVETWEB_ENABLE_SERVER_EXECUTABLE OFF CACHE BOOL "" FORCE)
+set(CIVETWEB_INSTALL_EXECUTABLE OFF CACHE BOOL "" FORCE)
+set(CIVETWEB_ENABLE_ASAN OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(civetweb GIT_REPOSITORY https://github.com/civetweb/civetweb.git GIT_TAG v1.16 GIT_SHALLOW ON)
+FetchContent_MakeAvailable(json civetweb)
+target_compile_definitions(civetweb-c-library PRIVATE USE_WEBSOCKET NO_SSL)
+
+add_executable(wtv-engine
+  src/main.cpp src/ObsRuntime.cpp src/StateStore.cpp src/Switcher.cpp src/PreviewOutput.cpp src/ControlServer.cpp src/Commands.cpp)
+target_include_directories(wtv-engine PRIVATE "${OBS_FW}/Headers" "${OBS_SRC_DIR}/libobs" "${OBS_BUILD_DIR}/config" "${OBS_DEPS_DIR}/include")
+target_link_libraries(wtv-engine PRIVATE "${OBS_FW}/libobs" nlohmann_json::nlohmann_json civetweb-c-library)
+target_compile_definitions(wtv-engine PRIVATE WTV_OBS_BUILD_DIR="${OBS_BUILD_DIR}" WTV_OBS_SRC_DIR="${OBS_SRC_DIR}" WTV_OBS_DEPS_DIR="${OBS_DEPS_DIR}")
+set_target_properties(wtv-engine PROPERTIES BUILD_RPATH "${OBS_BUILD_DIR}/libobs/RelWithDebInfo;${OBS_DEPS_DIR}/lib")
+# O ffmpeg_muxer procura o auxiliar ao lado do executável.
+add_custom_command(TARGET wtv-engine POST_BUILD COMMAND ${CMAKE_COMMAND} -E create_symlink
+  "${OBS_BUILD_DIR}/plugins/obs-ffmpeg/ffmpeg-mux/RelWithDebInfo/obs-ffmpeg-mux" "$<TARGET_FILE_DIR:wtv-engine>/obs-ffmpeg-mux")

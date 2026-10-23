@@ -2,7 +2,7 @@
 
 Misturador de vídeo ao vivo tipo vMix. Interface em Electron + React; motor nativo em Swift (Metal, VideoToolbox, AVFoundation) no Mac. Licença **GPL-2.0** (ver `LICENSE`).
 
-Direcção a partir de 2026-10-23 (decisão D23): o motor passa a ser **C++ sobre a libobs** (OBS Studio), para um só motor em macOS (Metal) e Windows (Direct3D 11), mantendo a interface Electron e o protocolo. O motor Swift fica como protótipo de referência enquanto a migração não estiver completa.
+Direcção a partir de 2026-10-23 (decisão D23): o motor passa a ser **C++ sobre a libobs** (OBS Studio), para um só motor em macOS (Metal) e Windows (Direct3D 11), mantendo a interface Electron e o protocolo. O motor Swift fica como protótipo de referência enquanto a migração não estiver completa. O motor novo vive em [engine-obs/](engine-obs/README.md) e já corre a interface com Preview/Program, transições, T-bar, FTB e preview multiview.
 
 - [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) — decisões, processos, pipeline, capacidade, fases.
 - [docs/PROTOCOLO.md](docs/PROTOCOLO.md) — contrato motor ⇄ interface (JSON-RPC, estado, preview binário).
