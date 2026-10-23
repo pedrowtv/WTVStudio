@@ -26,10 +26,13 @@ public:
     void tbar(double pos, const std::string &destId, const std::string &programId);
     void ftb(bool on, const std::string &programId);
     void rebuildMultiview(const json &tiles, const std::string &previewId);
+    /// Aplica um slot de overlay (1..4) do estado: fonte, rectângulo, opacidade e transição on/off.
+    void setOverlay(int slot, const json &overlay, double fps);
 
     void setAudio(const std::string &id, double db, bool mute);
     void mediaCommand(const std::string &id, const std::string &cmd, const json &p);
     Media mediaInfo(const std::string &id);
+    bool hasVideo(const std::string &id); // largura > 0 → a fonte está a produzir imagem
 
     video_t *multiviewVideo() { return mvVideo_; }
     std::function<void()> onTransitionDone; // chamado (na thread de vídeo) quando uma transição automática/manual termina
@@ -43,7 +46,11 @@ private:
     std::mutex m_;
     std::map<std::string, obs_source_t *> inputs_;
     std::map<std::string, obs_source_t *> transitions_;
-    obs_source_t *current_ = nullptr; // transição no canal 0
+    obs_source_t *current_ = nullptr; // transição Program (item de base da cena Program)
+    obs_scene_t *programScene_ = nullptr; // canal 0: transição + overlays 1..4
+    obs_sceneitem_t *programItem_ = nullptr;
+    struct Overlay { obs_source_t *fade = nullptr; obs_scene_t *scene = nullptr; obs_source_t *opacity = nullptr; bool on = false; std::string inputId; };
+    Overlay overlays_[4];
     obs_source_t *black_ = nullptr;
     obs_scene_t *mvScene_ = nullptr;
     obs_view_t *mvView_ = nullptr;

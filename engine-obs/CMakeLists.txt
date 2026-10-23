@@ -25,7 +25,7 @@ FetchContent_MakeAvailable(json civetweb)
 target_compile_definitions(civetweb-c-library PRIVATE USE_WEBSOCKET NO_SSL)
 
 add_executable(wtv-engine
-  src/main.cpp src/ObsRuntime.cpp src/StateStore.cpp src/Switcher.cpp src/PreviewOutput.cpp src/ControlServer.cpp src/Commands.cpp)
+  src/main.cpp src/ObsRuntime.cpp src/StateStore.cpp src/Switcher.cpp src/PreviewOutput.cpp src/ControlServer.cpp src/Commands.cpp src/Outputs.cpp)
 target_include_directories(wtv-engine PRIVATE "${OBS_FW}/Headers" "${OBS_SRC_DIR}/libobs" "${OBS_BUILD_DIR}/config" "${OBS_DEPS_DIR}/include")
 target_link_libraries(wtv-engine PRIVATE "${OBS_FW}/libobs" nlohmann_json::nlohmann_json civetweb-c-library)
 target_compile_definitions(wtv-engine PRIVATE WTV_OBS_BUILD_DIR="${OBS_BUILD_DIR}" WTV_OBS_SRC_DIR="${OBS_SRC_DIR}" WTV_OBS_DEPS_DIR="${OBS_DEPS_DIR}")

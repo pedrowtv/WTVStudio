@@ -1,0 +1,41 @@
+#pragma once
+#include "ObsRuntime.h"
+#include "StateStore.h"
+#include <map>
+#include <mutex>
+#include <string>
+
+/// Codificadores de Program partilhados (encode-once, D11) e saídas RTMP/SRT/gravação da libobs.
+class Outputs {
+public:
+    Outputs(StateStore &store, ObsRuntime &rt) : store_(store), rt_(rt) {}
+    void shutdown();
+
+    std::string add(const std::string &kind, const std::string &name, const json &config, std::string &error);
+    bool update(const std::string &id, const json &p);
+    bool remove(const std::string &id, std::string &error);
+    bool start(const std::string &id, std::string &error);
+    bool stop(const std::string &id);
+    bool startRecording(std::string &error);
+    void stopRecording();
+    bool anyActive();
+
+private:
+    struct Entry { std::string kind, url, key; int latencyMs = 120; obs_output_t *output = nullptr; obs_service_t *service = nullptr; };
+    bool ensureEncoders();
+    void releaseEncodersIfIdle();
+    void setStatus(const std::string &id, const std::string &status, const std::string &code = "");
+    static void onStart(void *, calldata_t *);
+    static void onStop(void *, calldata_t *);
+    static void onReconnect(void *, calldata_t *);
+    static void onReconnectOk(void *, calldata_t *);
+    struct SignalCtx { Outputs *self; std::string id; };
+
+    StateStore &store_;
+    ObsRuntime &rt_;
+    std::mutex m_;
+    std::map<std::string, Entry> outputs_;
+    std::map<std::string, SignalCtx *> ctx_;
+    obs_encoder_t *video_ = nullptr, *audio_ = nullptr;
+    obs_output_t *rec_ = nullptr;
+};

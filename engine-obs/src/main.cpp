@@ -2,6 +2,7 @@
 #include "Commands.h"
 #include "ControlServer.h"
 #include "ObsRuntime.h"
+#include "Outputs.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -43,7 +44,8 @@ int main(int argc, char **argv) {
     if (!sw.init(oc.width, oc.height, 1280, 720)) { fprintf(stderr, "switcher não inicializou\n"); return 1; }
 
     StateStore store(defaultState(ENGINE_VERSION, sc.bind + ":" + std::to_string(sc.port)));
-    Commands cmd(store, sw, rt, ENGINE_VERSION);
+    Outputs outputs(store, rt);
+    Commands cmd(store, sw, rt, outputs, ENGINE_VERSION);
     sw.onTransitionDone = [&] { cmd.onTransitionDone(); };
 
     ControlServer server;
@@ -69,6 +71,7 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "a encerrar\n");
     preview.stop();
+    outputs.shutdown();
     server.stop();
     sw.shutdown();
     rt.stop();

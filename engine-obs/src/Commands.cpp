@@ -16,8 +16,8 @@ static std::string nowIso() {
     char buf[32]; time_t t = time(nullptr); strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", gmtime(&t)); return buf;
 }
 
-Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, std::string v)
-    : store_(store), sw_(sw), rt_(rt), version_(std::move(v)) {}
+Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, std::string v)
+    : store_(store), sw_(sw), rt_(rt), out_(out), version_(std::move(v)) {}
 
 json Commands::handle(const json &req) {
     json id = req.value("id", json());
@@ -64,11 +64,17 @@ void Commands::onTransitionDone() {
 
 void Commands::tickMedia() {
     json s = store_.state();
-    std::vector<std::string> ids;
-    for (auto &[id, in] : s["inputs"].items()) if (in.value("kind", "") == "media") ids.push_back(id);
-    if (ids.empty()) return;
+    std::vector<std::string> mediaIds, liveIds;
+    for (auto &[id, in] : s["inputs"].items()) {
+        std::string kind = in.value("kind", "");
+        if (kind == "media") mediaIds.push_back(id);
+        else if (kind != "synthetic" && kind != "title") liveIds.push_back(id);
+    }
+    if (mediaIds.empty() && liveIds.empty()) return;
     std::map<std::string, Switcher::Media> info;
-    for (auto &id : ids) info[id] = sw_.mediaInfo(id);
+    for (auto &id : mediaIds) info[id] = sw_.mediaInfo(id);
+    std::map<std::string, bool> live;
+    for (auto &id : liveIds) live[id] = sw_.hasVideo(id);
     store_.mutate([&](json &st) {
         for (auto &[id, m] : info) {
             if (!st["inputs"].contains(id)) continue;
@@ -78,6 +84,7 @@ void Commands::tickMedia() {
             media["state"] = m.state;
             st["inputs"][id]["status"] = m.durationSeconds > 0 ? "live" : "starting";
         }
+        for (auto &[id, ok] : live) if (st["inputs"].contains(id)) st["inputs"][id]["status"] = ok ? "live" : "noSignal";
     });
 }
 
@@ -174,6 +181,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         });
         json st = store_.state();
         sw_.cut(idOrEmpty(st["program"]["inputId"]));
+        for (int i = 1; i <= 4; i++) sw_.setOverlay(i, st["overlays"][i - 1], st["project"]["raster"].value("fps", 50.0));
         syncMultiview();
         return json::object();
     }
@@ -251,7 +259,9 @@ json Commands::dispatch(const std::string &method, const json &p) {
             if (p.contains("rect")) o["rect"] = p["rect"];
             if (p.contains("opacity")) o["opacity"] = p["opacity"];
         });
-        return json::object(); // TODO: overlays no compositor (cena Program por cima da transição)
+        json s = store_.state();
+        sw_.setOverlay(slot, s["overlays"][slot - 1], s["project"]["raster"].value("fps", 50.0));
+        return json::object();
     }
     if (method == "audio.setGain" || method == "audio.setMute" || method == "audio.setSolo" || method == "audio.setAFV" || method == "audio.setPan" || method == "audio.setDelay") {
         std::string target = p.value("inputId", p.value("target", "master"));
@@ -281,8 +291,17 @@ json Commands::dispatch(const std::string &method, const json &p) {
         store_.mutate([&](json &st) { st["recording"]["folder"] = p.value("folder", json()); if (p.contains("container")) st["recording"]["container"] = p["container"]; });
         return json::object();
     }
-    if (method == "record.start") { std::string err; if (!startRecording(err)) throw RpcError{"NOT_RUNNING", err}; return json::object(); }
-    if (method == "record.stop") { stopRecording(); return json::object(); }
+    if (method == "record.start") { std::string err; if (!out_.startRecording(err)) throw RpcError{"NOT_RUNNING", err}; return json::object(); }
+    if (method == "record.stop") { out_.stopRecording(); return json::object(); }
+    if (method == "output.add") {
+        std::string err, id = out_.add(p.value("kind", ""), p.value("name", ""), p.value("config", json::object()), err);
+        if (id.empty()) throw RpcError{err, "não foi possível criar a saída"};
+        return {{"outputId", id}};
+    }
+    if (method == "output.update") { if (!out_.update(p.value("outputId", ""), p)) throw RpcError{"OUTPUT_NOT_FOUND", "saída não encontrada"}; return json::object(); }
+    if (method == "output.remove") { std::string err; if (!out_.remove(p.value("outputId", ""), err)) throw RpcError{err, "não foi possível remover"}; return json::object(); }
+    if (method == "output.start") { std::string err; if (!out_.start(p.value("outputId", ""), err)) throw RpcError{err, "não foi possível iniciar a saída"}; return json::object(); }
+    if (method == "output.stop") { if (!out_.stop(p.value("outputId", ""))) throw RpcError{"OUTPUT_NOT_FOUND", "saída não encontrada"}; return json::object(); }
     if (method == "project.setRaster") {
         int w = p.value("width", 1920), h = p.value("height", 1080); double fps = p.value("fps", 50.0);
         int num = fps == 29.97 ? 30000 : fps == 59.94 ? 60000 : (int)fps, den = (fps == 29.97 || fps == 59.94) ? 1001 : 1;
@@ -296,55 +315,10 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "project.list") return {{"projects", json::array()}};
     if (method == "permissions.status") return store_.state()["permissions"];
-    if (method == "output.add" || method == "output.update" || method == "output.remove" || method == "output.start" || method == "output.stop" ||
-        method == "audio.addPlugin" || method == "audio.removePlugin" || method == "audio.setPluginBypass" || method == "audio.openPluginUI") {
+    if (method == "audio.addPlugin" || method == "audio.removePlugin" || method == "audio.setPluginBypass" || method == "audio.openPluginUI") {
         throw RpcError{"CAPABILITY_MISSING", "ainda não implementado no motor libobs"};
     }
     if (method == "engine.shutdown") { shutdownRequested = true; return json::object(); }
     throw RpcError{"METHOD_NOT_FOUND", "método desconhecido: " + method};
 }
 
-bool Commands::startRecording(std::string &error) {
-    std::lock_guard l(recM_);
-    if (recOutput_) { error = "já a gravar"; return false; }
-    json s = store_.state();
-    std::string folder = s["recording"]["folder"].is_string() ? s["recording"]["folder"].get<std::string>() : std::string(getenv("HOME")) + "/Movies/WTV Studio";
-    std::string container = s["recording"].value("container", "mp4");
-    system(("mkdir -p \"" + folder + "\"").c_str());
-    char name[64]; time_t t = time(nullptr); strftime(name, sizeof name, "WTV %Y-%m-%d %H-%M-%S", localtime(&t));
-    std::string path = folder + "/" + name + "." + container;
-
-    obs_data_t *vs = obs_data_create();
-    obs_data_set_int(vs, "bitrate", 12000); obs_data_set_string(vs, "rate_control", "CBR"); obs_data_set_int(vs, "keyint_sec", 2);
-    recVideo_ = obs_video_encoder_create(rt_.videoEncoderId().c_str(), "wtv-rec-h264", vs, nullptr);
-    obs_data_release(vs);
-    recAudio_ = obs_audio_encoder_create("CoreAudio_AAC", "wtv-rec-aac", nullptr, 0, nullptr);
-    if (!recAudio_) recAudio_ = obs_audio_encoder_create("ffmpeg_aac", "wtv-rec-aac", nullptr, 0, nullptr);
-    obs_encoder_set_video(recVideo_, obs_get_video());
-    obs_encoder_set_audio(recAudio_, obs_get_audio());
-    obs_data_t *os = obs_data_create();
-    obs_data_set_string(os, "path", path.c_str());
-    recOutput_ = obs_output_create("ffmpeg_muxer", "wtv-rec", os, nullptr);
-    obs_data_release(os);
-    obs_output_set_video_encoder(recOutput_, recVideo_);
-    obs_output_set_audio_encoder(recOutput_, recAudio_, 0);
-    if (!obs_output_start(recOutput_)) {
-        error = obs_output_get_last_error(recOutput_) ? obs_output_get_last_error(recOutput_) : "falha ao iniciar";
-        obs_output_release(recOutput_); obs_encoder_release(recVideo_); obs_encoder_release(recAudio_);
-        recOutput_ = nullptr; recVideo_ = recAudio_ = nullptr;
-        return false;
-    }
-    store_.mutate([&](json &st) { st["recording"]["status"] = "recording"; st["recording"]["file"] = path; st["recording"]["startedAt"] = nowIso(); });
-    return true;
-}
-
-void Commands::stopRecording() {
-    std::lock_guard l(recM_);
-    if (!recOutput_) return;
-    store_.mutate([](json &st) { st["recording"]["status"] = "stopping"; });
-    obs_output_stop(recOutput_);
-    for (int i = 0; i < 100 && obs_output_active(recOutput_); i++) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    obs_output_release(recOutput_); obs_encoder_release(recVideo_); obs_encoder_release(recAudio_);
-    recOutput_ = nullptr; recVideo_ = recAudio_ = nullptr;
-    store_.mutate([](json &st) { st["recording"]["status"] = "idle"; st["recording"].erase("file"); st["recording"].erase("startedAt"); });
-}

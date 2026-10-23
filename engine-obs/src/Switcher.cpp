@@ -19,7 +19,21 @@ bool Switcher::init(int baseW, int baseH, int mvW, int mvH) {
         transitions_[k] = t;
     }
     current_ = transitions_["cut_transition"];
-    obs_set_output_source(0, current_);
+    programScene_ = obs_scene_create_private("program");
+    programItem_ = obs_scene_add(programScene_, current_);
+    for (int i = 0; i < 4; i++) {
+        Overlay &o = overlays_[i];
+        std::string n = "overlay" + std::to_string(i + 1);
+        o.fade = obs_source_create_private("fade_transition", n.c_str(), nullptr);
+        o.scene = obs_scene_create_private((n + "-scene").c_str());
+        obs_data_t *fs = obs_data_create();
+        obs_data_set_double(fs, "opacity", 1.0);
+        o.opacity = obs_source_create_private("color_filter_v2", (n + "-opacity").c_str(), fs);
+        obs_data_release(fs);
+        obs_source_filter_add(obs_scene_get_source(o.scene), o.opacity);
+        obs_scene_add(programScene_, o.fade);
+    }
+    obs_set_output_source(0, obs_scene_get_source(programScene_));
 
     obs_data_t *bs = obs_data_create();
     obs_data_set_int(bs, "color", 0xFF000000); obs_data_set_int(bs, "width", baseW); obs_data_set_int(bs, "height", baseH);
@@ -40,6 +54,12 @@ bool Switcher::init(int baseW, int baseH, int mvW, int mvH) {
 void Switcher::shutdown() {
     std::lock_guard l(m_);
     obs_set_output_source(0, nullptr);
+    for (auto &o : overlays_) {
+        if (o.scene) { obs_scene_release(o.scene); o.scene = nullptr; }
+        if (o.opacity) { obs_source_release(o.opacity); o.opacity = nullptr; }
+        if (o.fade) { obs_source_release(o.fade); o.fade = nullptr; }
+    }
+    if (programScene_) { obs_scene_release(programScene_); programScene_ = nullptr; }
     if (mvView_) { obs_view_set_source(mvView_, 0, nullptr); obs_view_remove(mvView_); obs_view_destroy(mvView_); mvView_ = nullptr; }
     if (mvScene_) { obs_scene_release(mvScene_); mvScene_ = nullptr; }
     for (auto &[id, s] : inputs_) obs_source_release(s);
@@ -79,6 +99,7 @@ bool Switcher::addInput(const std::string &id, const std::string &kind, const js
         obs_data_set_string(s, "input", c.value("url", "").c_str());
         obs_data_set_string(s, "input_format", "mpegts");
         obs_data_set_bool(s, "hw_decode", true);
+        obs_data_set_bool(s, "restart_on_activate", false); // as fontes correm sempre, não só quando estão em Program
         obs_data_set_int(s, "reconnect_delay_sec", 2);
     } else if (kind == "image") {
         obsId = "image_source";
@@ -190,7 +211,9 @@ obs_source_t *Switcher::transitionFor(const std::string &kind, const json &p) {
 void Switcher::swapTransition(obs_source_t *next) {
     if (next == current_) return;
     obs_transition_swap_begin(next, current_);
-    obs_set_output_source(0, next);
+    obs_sceneitem_remove(programItem_);
+    programItem_ = obs_scene_add(programScene_, next);
+    obs_sceneitem_set_order(programItem_, OBS_ORDER_MOVE_BOTTOM);
     obs_transition_swap_end(next, current_);
     current_ = next;
 }
@@ -238,7 +261,7 @@ void Switcher::rebuildMultiview(const json &tiles, const std::string &previewId)
     obs_scene_enum_items(mvScene_, [](obs_scene_t *, obs_sceneitem_t *item, void *) { obs_sceneitem_remove(item); return true; }, nullptr);
     for (auto &t : tiles) {
         std::string src = t.value("source", "");
-        obs_source_t *s = src == "program" ? current_ : src == "preview" ? source(previewId) : source(src);
+        obs_source_t *s = src == "program" ? obs_scene_get_source(programScene_) : src == "preview" ? source(previewId) : source(src);
         if (!s) continue;
         obs_sceneitem_t *item = obs_scene_add(mvScene_, s);
         auto r = t["rect"];
@@ -289,4 +312,50 @@ Switcher::Media Switcher::mediaInfo(const std::string &id) {
         default: m.state = "stopped";
     }
     return m;
+}
+
+void Switcher::setOverlay(int slot, const json &ov, double fps) {
+    if (slot < 1 || slot > 4) return;
+    std::lock_guard l(m_);
+    Overlay &o = overlays_[slot - 1];
+    std::string inputId = ov["inputId"].is_string() ? ov["inputId"].get<std::string>() : "";
+    bool on = ov.value("on", false) && !inputId.empty() && source(inputId);
+    // Conteúdo do slot: um item com a fonte dentro do rectângulo pedido
+    obs_scene_enum_items(o.scene, [](obs_scene_t *, obs_sceneitem_t *item, void *) { obs_sceneitem_remove(item); return true; }, nullptr);
+    if (obs_source_t *src = source(inputId)) {
+        obs_sceneitem_t *item = obs_scene_add(o.scene, src);
+        auto r = ov["rect"];
+        vec2 pos{(float)(r.value("x", 0.0) * baseW_), (float)(r.value("y", 0.0) * baseH_)};
+        vec2 bounds{(float)(r.value("w", 1.0) * baseW_), (float)(r.value("h", 1.0) * baseH_)};
+        obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
+        obs_sceneitem_set_bounds_alignment(item, OBS_ALIGN_CENTER);
+        obs_sceneitem_set_alignment(item, OBS_ALIGN_TOP | OBS_ALIGN_LEFT);
+        obs_sceneitem_set_pos(item, &pos);
+        obs_sceneitem_set_bounds(item, &bounds);
+        auto c = ov.value("crop", json::object());
+        obs_sceneitem_crop crop{};
+        uint32_t sw = obs_source_get_width(src), sh = obs_source_get_height(src);
+        crop.left = (int)(c.value("x", 0.0) * sw); crop.top = (int)(c.value("y", 0.0) * sh);
+        crop.right = (int)((1 - c.value("x", 0.0) - c.value("w", 1.0)) * sw); crop.bottom = (int)((1 - c.value("y", 0.0) - c.value("h", 1.0)) * sh);
+        if (crop.left || crop.top || crop.right > 0 || crop.bottom > 0) obs_sceneitem_set_crop(item, &crop);
+    }
+    obs_data_t *fs = obs_data_create();
+    obs_data_set_double(fs, "opacity", std::min(1.0, std::max(0.0, ov.value("opacity", 1.0))));
+    obs_source_update(o.opacity, fs); obs_data_release(fs);
+    // Liga/desliga com a transição do slot (cut = 0 ms)
+    if (on != o.on || inputId != o.inputId) {
+        std::string kind = ov.contains("transition") ? ov["transition"].value("kind", "cut") : "cut";
+        int frames = ov.contains("transition") ? ov["transition"].value("durationFrames", 0) : 0;
+        uint32_t ms = kind == "cut" ? 0 : (uint32_t)(frames * 1000.0 / fps);
+        obs_source_t *dest = on ? obs_scene_get_source(o.scene) : nullptr;
+        if (ms == 0) obs_transition_set(o.fade, dest);
+        else obs_transition_start(o.fade, OBS_TRANSITION_MODE_AUTO, ms, dest);
+    }
+    o.on = on; o.inputId = inputId;
+}
+
+bool Switcher::hasVideo(const std::string &id) {
+    std::lock_guard l(m_);
+    obs_source_t *s = source(id);
+    return s && obs_source_get_width(s) > 0;
 }
