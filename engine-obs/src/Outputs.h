@@ -20,7 +20,8 @@ public:
     void stopRecording();
     bool anyActive();
     bool setStreamBus(int mixerIdx, std::string &error); // 0 Master, 1 A, 2 B; só com saídas paradas
-    void setNdiBus(int mixerIdx);                       // aplica em directo às saídas NDI
+    void setNdiBus(int mixerIdx);
+    bool applyEncodingChange(std::string &error);       // descarta os codificadores para serem recriados com o estado novo                       // aplica em directo às saídas NDI
     void setNdiAvailable(bool on) { ndiAvailable_ = on; }
 
 private:

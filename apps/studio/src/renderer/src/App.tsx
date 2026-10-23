@@ -250,7 +250,7 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
 
       {modal && (
         <div className="modal-backdrop" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className={modal === "definicoes" ? "modal modal-wide" : "modal"} onClick={(e) => e.stopPropagation()}>
             <header className="modal-head">
               <strong>{TITULOS[modal]}</strong>
               <button className="btn btn-icon" onClick={() => setModal(null)}>✕</button>

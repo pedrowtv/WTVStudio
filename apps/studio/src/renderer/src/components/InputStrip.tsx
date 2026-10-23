@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { newTxnId } from "../rpc";
 import { askText } from "../dialogs";
 
-type Run = (m: string, p?: unknown) => Promise<void>;
+type Run = (m: string, p?: unknown) => Promise<unknown>;
 
 function InputCard({ input, index, run }: { input: InputState; index: number; run: Run }) {
   const engine = useStore((s) => s.engine);

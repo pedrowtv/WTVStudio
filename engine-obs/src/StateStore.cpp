@@ -56,7 +56,8 @@ json defaultState(const std::string &engineVersion, const std::string &bind) {
                     {"transition", {{"kind", "cut"}, {"durationFrames", 0}}}};
     json s = {
         {"rev", 0},
-        {"project", {{"name", "Sem título"}, {"raster", {{"width", 1920}, {"height", 1080}, {"fps", 50}}}}},
+        {"project", {{"name", "Sem título"}, {"raster", {{"width", 1920}, {"height", 1080}, {"fps", 50}}},
+                     {"encoding", {{"videoBitrateKbps", 6000}, {"audioBitrateKbps", 160}, {"keyintSec", 2}, {"profile", "high"}, {"rateControl", "CBR"}}}}},
         {"inputs", json::object()}, {"inputOrder", json::array()},
         {"program", {{"inputId", nullptr}, {"transition", nullptr}, {"ftb", false}}},
         {"preview", {{"inputId", nullptr}}},

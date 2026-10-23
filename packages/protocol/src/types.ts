@@ -9,6 +9,14 @@ export type OutputId = string;
 
 export type FrameRate = 25 | 29.97 | 30 | 50 | 59.94 | 60;
 
+/** Codificação de Program partilhada por stream e gravação (motor libobs). */
+export interface EncodingSettings {
+  videoBitrateKbps: number;
+  audioBitrateKbps: number;
+  keyintSec: number;
+  profile: "baseline" | "main" | "high";
+  rateControl: "CBR" | "VBR";
+}
 export interface Raster {
   width: number;
   height: number;
@@ -17,7 +25,7 @@ export interface Raster {
 
 export interface EngineState {
   rev: number;
-  project: { name: string; raster: Raster; path?: string };
+  project: { name: string; raster: Raster; path?: string; encoding?: EncodingSettings };
   inputs: Record<InputId, InputState>;
   inputOrder: InputId[];
   program: { inputId: InputId | null; transition: TransitionState | null; ftb: boolean };

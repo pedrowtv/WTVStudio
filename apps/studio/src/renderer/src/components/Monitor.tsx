@@ -9,7 +9,7 @@ function fmt(s: number): string {
 }
 
 /** Monitor grande de Preview ou Program com cabeçalho colorido e transporte de media (estilo vMix). */
-export function Monitor({ bus, run }: { bus: "preview" | "program"; run: (m: string, p?: unknown) => Promise<void> }) {
+export function Monitor({ bus, run }: { bus: "preview" | "program"; run: (m: string, p?: unknown) => Promise<unknown> }) {
   const engine = useStore((s) => s.engine);
   const inputId = bus === "preview" ? engine?.preview.inputId : engine?.program.inputId;
   const input: InputState | undefined = inputId ? engine?.inputs[inputId] : undefined;

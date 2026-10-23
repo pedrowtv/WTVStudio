@@ -59,6 +59,8 @@ Acrescentado a 2026-10-23 (pedidos do utilizador): **entrada NDI** (descoberta n
 
 Notas: a captura de ecrã precisa da permissão "Gravação de Ecrã" para o processo que lança o motor; em desenvolvimento é o Terminal. Não há câmaras ligadas nesta máquina, por isso o caminho AVFoundation está compilado mas não testado com hardware.
 
+Definições (2026-10-23): painel com barra lateral à maneira do vMix e páginas à maneira do OBS — Vídeo (formato, multiview, renderização), Stream e codificação (bitrates, keyframe, perfil, CBR/VBR, barramentos das saídas), Gravação (pasta, contentor), Áudio (monitor, matriz de barramentos M/A/B + AFV), Projector (ecrã, conteúdo, ecrã inteiro), Atalhos, Rede e dispositivos (NDI, ecrãs, saídas de áudio), Motor e registo. Só mostra o que o motor libobs suporta.
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

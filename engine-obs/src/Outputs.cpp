@@ -12,13 +12,14 @@ static std::string nowIso() { char b[32]; time_t t = time(nullptr); strftime(b, 
 
 bool Outputs::ensureEncoders() {
     if (video_) return true;
+    json enc = store_.state()["project"].value("encoding", json::object());
     obs_data_t *vs = obs_data_create();
-    obs_data_set_int(vs, "bitrate", 6000); obs_data_set_string(vs, "rate_control", "CBR");
-    obs_data_set_int(vs, "keyint_sec", 2); obs_data_set_string(vs, "profile", "high"); obs_data_set_bool(vs, "bframes", false);
+    obs_data_set_int(vs, "bitrate", enc.value("videoBitrateKbps", 6000)); obs_data_set_string(vs, "rate_control", enc.value("rateControl", "CBR").c_str());
+    obs_data_set_int(vs, "keyint_sec", enc.value("keyintSec", 2)); obs_data_set_string(vs, "profile", enc.value("profile", "high").c_str()); obs_data_set_bool(vs, "bframes", false);
     video_ = obs_video_encoder_create(rt_.videoEncoderId().c_str(), "wtv-program-h264", vs, nullptr);
     obs_data_release(vs);
     obs_data_t *as = obs_data_create();
-    obs_data_set_int(as, "bitrate", 160);
+    obs_data_set_int(as, "bitrate", enc.value("audioBitrateKbps", 160));
     audio_ = obs_audio_encoder_create("CoreAudio_AAC", "wtv-program-aac", as, mixerIdx_, nullptr);
     if (!audio_) audio_ = obs_audio_encoder_create("ffmpeg_aac", "wtv-program-aac", as, mixerIdx_, nullptr);
     obs_data_release(as);
@@ -233,6 +234,13 @@ void Outputs::shutdown() {
     for (auto &[id, c] : ctx_) delete c;
     ctx_.clear();
     if (video_) { obs_encoder_release(video_); obs_encoder_release(audio_); video_ = audio_ = nullptr; }
+}
+
+bool Outputs::applyEncodingChange(std::string &error) {
+    std::lock_guard l(m_);
+    if (anyActive()) { error = "ALREADY_RUNNING"; return false; }
+    releaseEncodersIfIdle();
+    return true;
 }
 
 void Outputs::setNdiBus(int idx) { std::lock_guard l(m_); ndiMixerIdx_ = idx; for (auto &[id, e] : outputs_) if (e.kind == "ndi" && e.output) obs_output_set_mixer(e.output, (size_t)idx); }

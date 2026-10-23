@@ -235,3 +235,5 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
   (propriedades do filtro da libobs; `audio.openPluginUI` devolve o mesmo porque os filtros não têm janela própria).
 - `audio.setPluginParam {inputId, pluginId, params: {nome: valor}}` aplica os valores ao filtro.
 - `projector.set` aceita `source` = `"program"`, `"multiview"` ou um `inputId`; `fullscreen` é ignorado no ecrã principal.
+- `project.setEncoding {videoBitrateKbps?, audioBitrateKbps?, keyintSec?, profile?, rateControl?}` altera `project.encoding`
+  (codificação de Program partilhada por stream e gravação); recusado com `ALREADY_RUNNING` enquanto houver saídas ou gravação activas.

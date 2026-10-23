@@ -11,7 +11,7 @@ const PRESETS: { id: string; label: string; rect: Rect }[] = [
 ];
 
 /** Os 4 slots de overlay (D10): fonte, ligar/desligar, posição e opacidade. */
-export function Overlays({ run }: { run: (method: string, params?: unknown) => Promise<void> }) {
+export function Overlays({ run }: { run: (method: string, params?: unknown) => Promise<unknown> }) {
   const engine = useStore((s) => s.engine);
   if (!engine) return null;
   const inputs = engine.inputOrder.map((id) => engine.inputs[id]).filter(Boolean);

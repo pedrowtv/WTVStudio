@@ -15,7 +15,7 @@ const WIPES: { id: WipeDirection; label: string }[] = [
 ];
 
 /** Coluna central: Quick Play, Cut, transições, FTB, overlays 1–4 e T-bar (estilo vMix). */
-export function TransitionColumn({ run }: { run: (m: string, p?: unknown) => Promise<void> }) {
+export function TransitionColumn({ run }: { run: (m: string, p?: unknown) => Promise<unknown> }) {
   const engine = useStore((s) => s.engine);
   const [wipe, setWipe] = useState<WipeDirection>("left");
   const [frames, setFrames] = useState(25);

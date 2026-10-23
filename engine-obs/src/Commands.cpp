@@ -393,6 +393,19 @@ json Commands::dispatch(const std::string &method, const json &p) {
     if (method == "output.remove") { std::string err; if (!out_.remove(p.value("outputId", ""), err)) throw RpcError{err, "não foi possível remover"}; return json::object(); }
     if (method == "output.start") { std::string err; if (!out_.start(p.value("outputId", ""), err)) throw RpcError{err, "não foi possível iniciar a saída"}; return json::object(); }
     if (method == "output.stop") { if (!out_.stop(p.value("outputId", ""))) throw RpcError{"OUTPUT_NOT_FOUND", "saída não encontrada"}; return json::object(); }
+    if (method == "project.setEncoding") {
+        std::string err;
+        if (!out_.applyEncodingChange(err)) throw RpcError{err, "parar as saídas e a gravação antes de mudar a codificação"};
+        store_.mutate([&](json &st) {
+            json &e = st["project"]["encoding"];
+            if (p.contains("videoBitrateKbps")) e["videoBitrateKbps"] = std::max(500, std::min(60000, p["videoBitrateKbps"].get<int>()));
+            if (p.contains("audioBitrateKbps")) e["audioBitrateKbps"] = std::max(64, std::min(320, p["audioBitrateKbps"].get<int>()));
+            if (p.contains("keyintSec")) e["keyintSec"] = std::max(1, std::min(10, p["keyintSec"].get<int>()));
+            if (p.contains("profile")) e["profile"] = p["profile"];
+            if (p.contains("rateControl")) e["rateControl"] = p["rateControl"];
+        });
+        return json::object();
+    }
     if (method == "project.setRaster") {
         int w = p.value("width", 1920), h = p.value("height", 1080); double fps = p.value("fps", 50.0);
         int num = fps == 29.97 ? 30000 : fps == 59.94 ? 60000 : (int)fps, den = (fps == 29.97 || fps == 59.94) ? 1001 : 1;

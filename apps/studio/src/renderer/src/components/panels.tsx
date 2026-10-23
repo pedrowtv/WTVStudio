@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { MeterReading } from "@wtv/protocol";
 import { useStore } from "../store";
 import { newTxnId } from "../rpc";
@@ -288,74 +289,215 @@ const RASTERS = [
   { label: "2160p30", w: 3840, h: 2160, fps: 30 },
 ];
 
+type SettingsPage = "video" | "saidas" | "gravacao" | "audio" | "projector" | "atalhos" | "rede" | "motor";
+const PAGES: { id: SettingsPage; label: string; icon: string }[] = [
+  { id: "video", label: "Vídeo", icon: "🎞" }, { id: "saidas", label: "Stream e codificação", icon: "📡" }, { id: "gravacao", label: "Gravação", icon: "⏺" },
+  { id: "audio", label: "Áudio", icon: "🎚" }, { id: "projector", label: "Projector", icon: "🖥" }, { id: "atalhos", label: "Atalhos", icon: "⌨" },
+  { id: "rede", label: "Rede e dispositivos", icon: "🌐" }, { id: "motor", label: "Motor e registo", icon: "⚙" },
+];
+const SHORTCUTS: [string, string][] = [["1–9", "Fonte N para Preview"], ["Enter", "Cut"], ["Espaço", "Fade (duração da coluna)"], ["F", "Fade to black"], ["Esc", "Fechar janela / projector"], ["Duplo clique na miniatura", "Cut directo"]];
+
+/** Painel de definições com barra lateral, à maneira do vMix (categorias) e do OBS (páginas); só mostra o que o motor suporta. */
 export function SettingsPanel({ run, engineUrl }: { run: Run; engineUrl: string }) {
   const engine = useStore((s) => s.engine);
   const log = useStore((s) => s.log);
+  const [page, setPage] = useState<SettingsPage>("video");
   if (!engine) return null;
+  const live = Object.values(engine.outputs).some((o) => o.status !== "stopped") || engine.recording.status !== "idle";
+  const enc = engine.project.encoding ?? { videoBitrateKbps: 6000, audioBitrateKbps: 160, keyintSec: 2, profile: "high", rateControl: "CBR" };
   const r = engine.project.raster;
   const current = RASTERS.find((x) => x.w === r.width && x.h === r.height && x.fps === r.fps)?.label ?? `${r.width}×${r.height}@${r.fps}`;
-  const live = Object.values(engine.outputs).some((o) => o.status !== "stopped") || engine.recording.status !== "idle";
+  const lock = live ? "Pare as saídas e a gravação para alterar" : "";
+  const setEnc = (patch: Partial<typeof enc>) => void run("project.setEncoding", patch);
+  const mbps = (enc.videoBitrateKbps + enc.audioBitrateKbps) / 1000;
+
   return (
-    <>
-      <h3>Projecto</h3>
-      <label className="row">
-        <span>Formato</span>
-        <select value={current} disabled={live} title={live ? "Pare as saídas para mudar o formato" : ""} onChange={(e) => { const x = RASTERS.find((y) => y.label === e.target.value); if (x) void run("project.setRaster", { width: x.w, height: x.h, fps: x.fps }); }}>
-          {RASTERS.map((x) => <option key={x.label} value={x.label}>{x.label}</option>)}
-          {!RASTERS.some((x) => x.label === current) && <option value={current}>{current}</option>}
-        </select>
-      </label>
-      <label className="row">
-        <span>Multiview</span>
-        <select value={engine.multiview.layoutId} onChange={(e) => run("preview.setLayout", { layoutId: e.target.value })}>
-          <option value="2+8">Preview + Program + 8</option>
-          <option value="2+16">Preview + Program + 16</option>
-          <option value="pgm+pvw">Só Preview e Program</option>
-        </select>
-      </label>
-
-      <h3>Projector</h3>
-      <div className="buttons">
-        <button className={engine.projector.displayId ? "btn" : "btn btn-sel"} onClick={() => run("projector.set", { displayId: null })}>Desligado</button>
-        {engine.devices.displays.map((d) => (
-          <button key={d.id} className={engine.projector.displayId === d.id ? "btn btn-sel" : "btn"} title={d.isMain ? "Ecrã principal: abre sempre em janela" : ""} onClick={() => run("projector.set", { displayId: d.id, source: engine.projector.source, fullscreen: !d.isMain })}>{d.name} {d.width}×{d.height}{d.isMain ? " (principal)" : ""}</button>
-        ))}
+    <div className="settings">
+      <nav className="settings-nav">
+        {PAGES.map((p) => <button key={p.id} className={page === p.id ? "on" : ""} onClick={() => setPage(p.id)}><span className="ico">{p.icon}</span>{p.label}</button>)}
+      </nav>
+      <div className="settings-page">
+        {page === "video" && (
+          <>
+            <h3>Formato de produção</h3>
+            <p className="hint">Resolução e cadência do Program, do preview e de todas as saídas. Igual ao "Output Size" do vMix e ao "Base/Output" do OBS, mas um só formato: o motor codifica uma vez e envia para todos os destinos.</p>
+            <label className="row"><span>Formato</span>
+              <select value={current} disabled={live} title={lock} onChange={(e) => { const x = RASTERS.find((y) => y.label === e.target.value); if (x) void run("project.setRaster", { width: x.w, height: x.h, fps: x.fps }); }}>
+                {RASTERS.map((x) => <option key={x.label} value={x.label}>{x.label}</option>)}
+                {!RASTERS.some((x) => x.label === current) && <option value={current}>{current}</option>}
+              </select>
+              {live && <span className="muted small">{lock}</span>}
+            </label>
+            <h3>Multiview</h3>
+            <label className="row"><span>Disposição</span>
+              <select value={engine.multiview.layoutId} onChange={(e) => run("preview.setLayout", { layoutId: e.target.value })}>
+                <option value="2+8">Preview + Program + 8 fontes</option>
+                <option value="2+16">Preview + Program + 16 fontes</option>
+                <option value="pgm+pvw">Só Preview e Program</option>
+              </select>
+            </label>
+            <p className="hint">O preview da interface é um único stream H.264 {engine.multiview.size.width}×{engine.multiview.size.height} descodificado no browser; as miniaturas são recortes dele.</p>
+            <h3>Renderização</h3>
+            <ul className="lista small">
+              <li><span className="nome">Compositor</span> libobs · Metal (Apple Silicon)</li>
+              <li><span className="nome">Codificador</span> VideoToolbox H.264 por hardware · {engine.budget.encoderUsedPercent.toFixed(0)} % de {engine.budget.encoderCapacity1080pFps} fps 1080p</li>
+              <li><span className="nome">Memória</span> {engine.budget.memoryUsedMB} MB de {engine.budget.memoryLimitMB} MB reservados ao motor</li>
+            </ul>
+          </>
+        )}
+        {page === "saidas" && (
+          <>
+            <h3>Codificação de Program</h3>
+            <p className="hint">Um codificador para stream e gravação (encode-once). Para YouTube/Facebook a 1080p50 use 6 000–9 000 kbps; keyframe de 2 s é o exigido pelas plataformas.</p>
+            <label className="row"><span>Bitrate vídeo</span><input type="number" min={500} max={60000} step={250} value={enc.videoBitrateKbps} disabled={live} title={lock} onChange={(e) => setEnc({ videoBitrateKbps: Number(e.target.value) })} /> <span className="muted small">kbps</span></label>
+            <label className="row"><span>Bitrate áudio</span>
+              <select value={enc.audioBitrateKbps} disabled={live} title={lock} onChange={(e) => setEnc({ audioBitrateKbps: Number(e.target.value) })}>
+                {[96, 128, 160, 192, 256, 320].map((b) => <option key={b} value={b}>{b} kbps AAC</option>)}
+              </select>
+            </label>
+            <label className="row"><span>Keyframe</span>
+              <select value={enc.keyintSec} disabled={live} title={lock} onChange={(e) => setEnc({ keyintSec: Number(e.target.value) })}>
+                {[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k} s</option>)}
+              </select>
+            </label>
+            <label className="row"><span>Perfil</span>
+              <select value={enc.profile} disabled={live} title={lock} onChange={(e) => setEnc({ profile: e.target.value as typeof enc.profile })}>
+                <option value="high">High (recomendado)</option><option value="main">Main</option><option value="baseline">Baseline (compatibilidade)</option>
+              </select>
+            </label>
+            <label className="row"><span>Controlo</span>
+              <select value={enc.rateControl} disabled={live} title={lock} onChange={(e) => setEnc({ rateControl: e.target.value as typeof enc.rateControl })}>
+                <option value="CBR">CBR (constante, para stream)</option><option value="VBR">VBR (variável)</option>
+              </select>
+            </label>
+            <p className="hint">Total ≈ {mbps.toFixed(1)} Mbps por destino · {Object.keys(engine.outputs).length} destino(s) configurado(s) em "Saídas".</p>
+            <h3>Barramentos das saídas</h3>
+            <label className="row"><span>Stream + gravação</span>
+              <select value={engine.audio.outputBus.stream} disabled={live} title={lock} onChange={(e) => run("audio.setOutputBus", { output: "stream", bus: e.target.value })}>
+                <option value="master">Master</option><option value="a">Bus A</option><option value="b">Bus B</option>
+              </select>
+            </label>
+            <label className="row"><span>NDI</span>
+              <select value={engine.audio.outputBus.ndi} onChange={(e) => run("audio.setOutputBus", { output: "ndi", bus: e.target.value })}>
+                <option value="master">Master</option><option value="a">Bus A</option><option value="b">Bus B</option>
+              </select>
+            </label>
+          </>
+        )}
+        {page === "gravacao" && (
+          <>
+            <h3>Gravação local</h3>
+            <label className="row"><span>Pasta</span>
+              <span className="path">{engine.recording.folder ?? "~/Movies/WTV Studio"}</span>
+              <button className="btn btn-x" disabled={engine.recording.status !== "idle"} onClick={async () => { const f = await pickFolder("Pasta de gravação"); if (f) void run("record.setFolder", { folder: f }); }}>Escolher…</button>
+              {engine.recording.folder && <button className="btn btn-x" disabled={engine.recording.status !== "idle"} onClick={() => run("record.setFolder", { folder: null })}>Predefinida</button>}
+            </label>
+            <label className="row"><span>Contentor</span>
+              <select value={engine.recording.container} disabled={engine.recording.status !== "idle"} onChange={(e) => run("record.setFolder", { folder: engine.recording.folder ?? null, container: e.target.value })}>
+                <option value="mp4">MP4 (universal)</option><option value="mov">MOV (Final Cut / Premiere)</option>
+              </select>
+            </label>
+            <p className="hint">Ficheiros "WTV AAAA-MM-DD HH-MM-SS" com a codificação da página "Stream e codificação". A gravação usa o mesmo H.264/AAC do stream, sem segunda codificação.</p>
+            {engine.recording.status !== "idle" && <p className="hint">A gravar para <code>{engine.recording.file}</code> desde {engine.recording.startedAt && new Date(engine.recording.startedAt).toLocaleTimeString("pt-PT")}.</p>}
+          </>
+        )}
+        {page === "audio" && (
+          <>
+            <h3>Dispositivo e monitorização</h3>
+            <ul className="lista small"><li><span className="nome">Motor</span> 48 kHz · float 32 bits · estéreo · blocos de 10 ms</li></ul>
+            <label className="row"><span>Monitor</span>
+              <select value={engine.audio.monitor.deviceId ?? ""} onChange={(e) => run("audio.setMonitor", { deviceId: e.target.value || null })}>
+                <option value="">Predefinido do sistema</option>
+                {engine.devices.audioOut.map((d) => <option key={d.uid} value={d.uid}>{d.name}</option>)}
+              </select>
+              <select value={engine.audio.monitor.bus} onChange={(e) => run("audio.setMonitor", { bus: e.target.value })}>
+                <option value="master">ouve o Master</option><option value="a">ouve o Bus A</option><option value="b">ouve o Bus B</option>
+              </select>
+            </label>
+            <h3>Matriz de barramentos</h3>
+            <p className="hint">Como no vMix: cada fonte envia para Master, A e B. A e B servem para mix-minus (retorno sem o próprio apresentador) ou para o NDI levar um áudio diferente do stream.</p>
+            <table className="matrix">
+              <thead><tr><th>Fonte</th><th>M</th><th>A</th><th>B</th><th>AFV</th><th>Ganho</th></tr></thead>
+              <tbody>
+                {engine.inputOrder.map((id) => { const i = engine.inputs[id]; const a = engine.audio.inputs[id]; if (!i?.hasAudio) return null; const buses = a?.buses ?? ["master"]; return (
+                  <tr key={id}><td>{i.name}</td>
+                    {(["master", "a", "b"] as const).map((b) => <td key={b}><input type="checkbox" checked={buses.includes(b)} onChange={(e) => run("audio.setBus", { inputId: id, bus: b, on: e.target.checked })} /></td>)}
+                    <td><input type="checkbox" checked={a?.afv ?? true} onChange={(e) => run("audio.setAFV", { inputId: id, on: e.target.checked })} /></td>
+                    <td className="muted small">{(a?.db ?? 0).toFixed(1)} dB</td>
+                  </tr>); })}
+                {!engine.inputOrder.some((id) => engine.inputs[id]?.hasAudio) && <tr><td colSpan={6} className="muted">Sem fontes com áudio.</td></tr>}
+              </tbody>
+            </table>
+            <p className="hint">Plugins (RNNoise, compressor, EQ…) e faders estão no Audio Mixer.</p>
+          </>
+        )}
+        {page === "projector" && (
+          <>
+            <h3>Projector</h3>
+            <p className="hint">Saída para um ecrã ou projector físico. Em ecrãs externos abre em ecrã inteiro; no ecrã principal abre sempre em janela (Esc fecha).</p>
+            <div className="buttons">
+              <button className={engine.projector.displayId ? "btn" : "btn btn-sel"} onClick={() => run("projector.set", { displayId: null })}>Desligado</button>
+              {engine.devices.displays.map((d) => (
+                <button key={d.id} className={engine.projector.displayId === d.id ? "btn btn-sel" : "btn"} title={d.isMain ? "Ecrã principal: abre sempre em janela" : ""} onClick={() => run("projector.set", { displayId: d.id, source: engine.projector.source, fullscreen: !d.isMain })}>{d.name} · {d.width}×{d.height} @ {Math.round(d.refreshHz)} Hz{d.isMain ? " (principal)" : ""}</button>
+              ))}
+            </div>
+            <label className="row"><span>Conteúdo</span>
+              <select value={engine.projector.source} onChange={(e) => run("projector.set", { displayId: engine.projector.displayId, source: e.target.value, fullscreen: engine.projector.fullscreen })}>
+                <option value="program">Program</option><option value="multiview">Multiview</option>
+                {engine.inputOrder.map((id) => <option key={id} value={id}>Fonte: {engine.inputs[id]?.name}</option>)}
+              </select>
+            </label>
+            <div className="buttons">
+              <button className={engine.projector.fullscreen ? "btn btn-sel" : "btn"} disabled={!engine.devices.displays.some((d) => !d.isMain)} title="Só em ecrãs externos" onClick={() => run("projector.set", { displayId: engine.projector.displayId, source: engine.projector.source, fullscreen: !engine.projector.fullscreen })}>Ecrã inteiro</button>
+            </div>
+          </>
+        )}
+        {page === "atalhos" && (
+          <>
+            <h3>Atalhos de teclado</h3>
+            <table className="matrix"><tbody>{SHORTCUTS.map(([k, d]) => <tr key={k}><td><kbd>{k}</kbd></td><td>{d}</td></tr>)}</tbody></table>
+            <p className="hint">Atalhos personalizados, MIDI e Stream Deck ficam para uma versão seguinte.</p>
+          </>
+        )}
+        {page === "rede" && (
+          <>
+            <h3>Acesso</h3>
+            <ul className="lista small">
+              <li><span className="nome">Motor</span> {engineUrl} · {engine.system.remoteAccess ? "acesso remoto ligado" : "só neste Mac (token por arranque, cookie de sessão)"}</li>
+              <li><span className="nome">Capacidades</span> NDI {engine.devices.ndiSources ? "sim" : "não"} · SRT sim · DeckLink não</li>
+            </ul>
+            <p className="hint">Controlo a partir de outro computador ou tablet (PIN + QR) fica para a fase de acesso LAN.</p>
+            <h3>Fontes NDI na rede <button className="btn btn-x" onClick={() => run("devices.refresh", {})}>Actualizar</button></h3>
+            <ul className="lista small">
+              {engine.devices.ndiSources.map((n) => <li key={n.name}><span className="nome">NDI</span> {n.name} <span className="muted">{n.url}</span></li>)}
+              {engine.devices.ndiSources.length === 0 && <li className="muted">Nenhuma fonte NDI encontrada.</li>}
+            </ul>
+            <h3>Ecrãs</h3>
+            <ul className="lista small">{engine.devices.displays.map((d) => <li key={d.id}><span className="nome">{d.isMain ? "Principal" : "Externo"}</span> {d.name} · {d.width}×{d.height} @ {Math.round(d.refreshHz)} Hz</li>)}</ul>
+            <h3>Saídas de áudio</h3>
+            <ul className="lista small">{engine.devices.audioOut.map((d) => <li key={d.uid}><span className="nome">{d.isDefault ? "Predefinida" : "Saída"}</span> {d.name}</li>)}</ul>
+          </>
+        )}
+        {page === "motor" && (
+          <>
+            <h3>Motor</h3>
+            <ul className="lista small">
+              <li><span className="nome">Versão</span> {engine.system.engineVersion} · pid {engine.system.pid} · desde {new Date(engine.system.startedAt).toLocaleTimeString("pt-PT")}</li>
+              <li><span className="nome">Térmico</span> {engine.system.thermal}</li>
+              <li><span className="nome">Permissões</span> câmara {engine.permissions.camera} · microfone {engine.permissions.microphone} · ecrã {engine.permissions.screen}</li>
+            </ul>
+            <div className="buttons">
+              <button className="btn" onClick={() => { if (window.confirm("Encerrar o motor? Todas as saídas param.")) void run("engine.shutdown", { force: true }); }}>Encerrar motor</button>
+            </div>
+            {engine.alarms.length > 0 && (<><h3>Alarmes</h3><ul className="lista small">{engine.alarms.map((a) => <li key={a.id} className={a.level === "critical" ? "erro" : ""}>{a.detail ?? a.code}</li>)}</ul></>)}
+            <h3>Registo</h3>
+            <ul className="lista small">
+              {log.slice(-20).reverse().map((l, i) => <li key={i}><span className="muted">{new Date(l.at).toLocaleTimeString("pt-PT")}</span> {l.message}</li>)}
+              {log.length === 0 && <li className="muted">Sem eventos.</li>}
+            </ul>
+          </>
+        )}
       </div>
-      <div className="buttons">
-        {(["program", "multiview"] as const).map((src) => (
-          <button key={src} className={engine.projector.source === src ? "btn btn-sel" : "btn"} onClick={() => run("projector.set", { displayId: engine.projector.displayId, source: src, fullscreen: engine.projector.fullscreen })}>{src === "program" ? "Program" : "Multiview"}</button>
-        ))}
-        <button className={engine.projector.fullscreen ? "btn btn-sel" : "btn"} disabled={!engine.devices.displays.some((d) => !d.isMain)} title="Só em ecrãs externos; no ecrã principal o projector abre em janela" onClick={() => run("projector.set", { displayId: engine.projector.displayId, source: engine.projector.source, fullscreen: !engine.projector.fullscreen })}>Ecrã inteiro</button>
-      </div>
-
-      <h3>Motor</h3>
-      <ul className="lista small">
-        <li><span className="nome">Versão</span> {engine.system.engineVersion} · pid {engine.system.pid}</li>
-        <li><span className="nome">Endereço</span> {engineUrl} {engine.system.remoteAccess ? "(acesso remoto ligado)" : "(só este Mac)"}</li>
-        <li><span className="nome">Codificador</span> {engine.budget.encoderUsedPercent.toFixed(0)} % de {engine.budget.encoderCapacity1080pFps} fps 1080p</li>
-        <li><span className="nome">Térmico</span> {engine.system.thermal}</li>
-        <li><span className="nome">Permissões</span> câmara {engine.permissions.camera} · ecrã {engine.permissions.screen}</li>
-      </ul>
-      <div className="buttons">
-        <button className="btn" onClick={() => { if (window.confirm("Encerrar o motor? Todas as saídas param.")) void run("engine.shutdown", { force: true }); }}>Encerrar motor</button>
-      </div>
-
-      {engine.alarms.length > 0 && (
-        <>
-          <h3>Alarmes</h3>
-          <ul className="lista small">
-            {engine.alarms.map((a) => <li key={a.id} className={a.level === "critical" ? "erro" : ""}>{a.detail ?? a.code}</li>)}
-          </ul>
-        </>
-      )}
-
-      <h3>Registo</h3>
-      <ul className="lista small">
-        {log.slice(-12).reverse().map((l, i) => (
-          <li key={i}><span className="muted">{new Date(l.at).toLocaleTimeString("pt-PT")}</span> {l.message}</li>
-        ))}
-        {log.length === 0 && <li className="muted">Sem eventos.</li>}
-      </ul>
-    </>
+    </div>
   );
 }
