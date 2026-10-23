@@ -18,6 +18,8 @@ src/Commands.*       despacho dos métodos JSON-RPC
 src/NDI.*            NDI sobre o shim `src/cndi` (libndi por dlopen, D17): fonte `wtv_ndi_source` (BGRA assíncrono + áudio
                      float planar, modo low bandwidth), saída `wtv_ndi_output` (raw BGRA + áudio do barramento NDI),
                      descoberta de fontes (devices.ndiSources, actualizada de 5 em 5 s e em devices.refresh)
+src/Projector.*      janela AppKit com obs_display (Program, multiview ou fonte), ajustada ao raster; ecrã inteiro só em
+                     ecrãs externos; Esc/Cmd+W fecham; o main thread corre o NSApp e o motor corre numa thread própria
 src/AudioEngine.*    VU por fonte (obs_volmeter, true peak) e por barramento (callbacks das tracks 1–3 = Master/A/B),
                      ganho, pan, atraso, mute, solo, AFV (fonte fora do ecrã na cena Program quando desligado),
                      barramentos por fonte (máscara de tracks), monitorização por barramento, filtros da libobs
@@ -51,7 +53,9 @@ um loop de vídeo que escurece as cores a cada volta; não é defeito do motor. 
 da NewTek (ver docs/AMBIENTE.md) ou de `WTV_NDI_PATH`. OMT (Open Media Transport, MIT): a libomt é um wrapper C sobre
 um binário .NET pré-compilado (libomt + libvmx .dylib); fica para carregar por dlopen como o NDI quando houver release
 estável para macOS arm64.
+Projector e parâmetros dos filtros (audio.getPluginParams/setPluginParam via obs_properties; a UI edita-os no ⚙ do
+plugin) verificados: janela com Program + overlay no ecrã principal, compressor com threshold/ratio alterados.
 Empacotamento feito: WTV Engine.app com token/cookie/Origin, engine.json e log; a app Electron lança-o e liga.
-Por fazer: parâmetros dos filtros (sem janela própria),
+Por fazer:
 ganho Master,
 projector, token/cookie fora de `--dev`, engine.json para o Electron, empacotamento em `WTV Engine.app`.

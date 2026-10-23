@@ -16,6 +16,7 @@ bool Switcher::init(int baseW, int baseH, int mvW, int mvH) {
         obs_source_t *t = obs_source_create_private(k, k, nullptr);
         if (!t) { fprintf(stderr, "transição %s indisponível\n", k); return false; }
         signal_handler_connect(obs_source_get_signal_handler(t), "transition_stop", transitionStopped, this);
+        obs_transition_set_size(t, (uint32_t)baseW, (uint32_t)baseH);     // tamanho fixo = raster
         obs_transition_set_scale_type(t, OBS_TRANSITION_SCALE_ASPECT); // fonte ajustada ao raster, centrada
         obs_transition_set_alignment(t, OBS_ALIGN_CENTER);
         transitions_[k] = t;

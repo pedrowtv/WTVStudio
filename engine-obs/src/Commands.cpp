@@ -1,5 +1,6 @@
 #include "Commands.h"
 #include "NDI.h"
+#include "Projector.h"
 #include <chrono>
 #include <ctime>
 #include <random>
@@ -19,7 +20,7 @@ static std::string nowIso() {
 
 Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
     : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
-    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["ndiSources"] = NDI::discover(0); });
+    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); s["devices"]["ndiSources"] = NDI::discover(0); s["devices"]["displays"] = Projector::displays(); });
 }
 
 void Commands::applyAudio(const std::string &only) {
@@ -339,7 +340,38 @@ json Commands::dispatch(const std::string &method, const json &p) {
         });
         return json::object();
     }
-    if (method == "audio.openPluginUI") throw RpcError{"CAPABILITY_MISSING", "os filtros da libobs não têm janela própria; parâmetros por audio.setPluginParam (em breve)"};
+    if (method == "audio.getPluginParams" || method == "audio.openPluginUI") {
+        std::string id = requireInput(p);
+        json r = audio_.pluginParams(id, p.value("pluginId", ""));
+        if (r.is_null()) throw RpcError{"INVALID_PARAMS", "plugin não encontrado"};
+        return r;
+    }
+    if (method == "audio.setPluginParam") {
+        std::string id = requireInput(p);
+        if (!audio_.setPluginParams(id, p.value("pluginId", ""), p.value("params", json::object()))) throw RpcError{"INVALID_PARAMS", "plugin não encontrado"};
+        return json::object();
+    }
+    if (method == "projector.set") {
+        json displayId = p.contains("displayId") ? p["displayId"] : json();
+        std::string source = p.value("source", "program");
+        bool fullscreen = p.value("fullscreen", false);
+        if (displayId.is_null() || !displayId.is_string()) {
+            Projector::close();
+            store_.mutate([&](json &st) { st["projector"]["displayId"] = nullptr; });
+            return json::object();
+        }
+        obs_source_t *src = nullptr;
+        if (source == "multiview") src = sw_.multiviewSource();
+        else if (source != "program") { if (!sw_.hasInput(source)) throw RpcError{"INPUT_NOT_FOUND", "fonte não encontrada"}; src = sw_.sourceRef(source); }
+        json displays = store_.state()["devices"]["displays"];
+        bool isMain = true;
+        for (auto &d : displays) if (d["id"] == displayId) isMain = d.value("isMain", true);
+        Projector::open(displayId.get<std::string>(), src, fullscreen && !isMain, [this] {
+            store_.mutate([](json &st) { st["projector"]["displayId"] = nullptr; });
+        });
+        store_.mutate([&](json &st) { st["projector"] = {{"displayId", displayId}, {"source", source}, {"fullscreen", fullscreen && !isMain}}; });
+        return json::object();
+    }
     if (method == "preview.setLayout") {
         std::string layout = p.value("layoutId", "2+8");
         store_.mutate([&](json &st) { st["multiview"]["layoutId"] = layout; refreshMultiview(st); });
@@ -369,11 +401,11 @@ json Commands::dispatch(const std::string &method, const json &p) {
         return json::object();
     }
     if (method == "devices.refresh") {
-        json ndi = NDI::discover(1500), aout = audio_.monitoringDevices();
-        store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; });
+        json ndi = NDI::discover(1500), aout = audio_.monitoringDevices(), disp = Projector::displays();
+        store_.mutate([&](json &st) { st["devices"]["ndiSources"] = ndi; st["devices"]["audioOut"] = aout; st["devices"]["displays"] = disp; });
         return json::object();
     }
-    if (method == "preview.keyframe" || method == "projector.set" || method == "project.save" || method == "project.load") {
+    if (method == "preview.keyframe" || method == "project.save" || method == "project.load") {
         return json::object();
     }
     if (method == "project.list") return {{"projects", json::array()}};

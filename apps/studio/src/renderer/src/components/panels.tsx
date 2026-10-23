@@ -3,7 +3,36 @@ import { useStore } from "../store";
 import { newTxnId } from "../rpc";
 import { askFields, askText, pickFiles, pickFolder } from "../dialogs";
 
-type Run = (method: string, params?: unknown) => Promise<void>;
+type Run = (method: string, params?: unknown) => Promise<unknown>;
+
+interface PluginProperty { name: string; description: string; type: "float" | "int" | "bool" | "text" | "list"; min?: number; max?: number; step?: number; options?: { name: string; value: string | number }[] }
+
+/** Parâmetros de um filtro de áudio da libobs numa caixa de campos (sem janela própria do plugin). */
+async function editPluginParams(run: Run, inputId: string, pluginId: string, title: string): Promise<void> {
+  const r = (await run("audio.getPluginParams", { inputId, pluginId })) as { properties: PluginProperty[]; values: Record<string, unknown> } | undefined;
+  if (!r) return;
+  const fields = r.properties.map((p) => {
+    const cur = r.values[p.name];
+    let label = p.description;
+    if (p.type === "float" || p.type === "int") label += ` (${p.min} a ${p.max})`;
+    if (p.type === "bool") label += " (sim/não)";
+    if (p.type === "list" && p.options) label += ` (${p.options.map((o) => `${o.name}=${o.value}`).join(", ")})`;
+    return { key: p.name, label, defaultValue: cur === undefined ? "" : String(cur) };
+  });
+  const out = await askFields(`Parâmetros: ${title}`, fields);
+  if (!out) return;
+  const params: Record<string, unknown> = {};
+  for (const p of r.properties) {
+    const v = out[p.name];
+    if (v === undefined || v === "") continue;
+    if (p.type === "float") params[p.name] = Number(v);
+    else if (p.type === "int") params[p.name] = Math.round(Number(v));
+    else if (p.type === "bool") params[p.name] = /^(sim|s|true|1|yes)$/i.test(v);
+    else if (p.type === "list" && typeof p.options?.[0]?.value === "number") params[p.name] = Number(v);
+    else params[p.name] = v;
+  }
+  await run("audio.setPluginParam", { inputId, pluginId, params });
+}
 
 // ---------------------------------------------------------------- Fontes
 
@@ -116,7 +145,7 @@ export function AudioPanel({ run, meters }: { run: Run; meters: MeterReading[] }
                 {(a?.plugins ?? []).map((pl) => (
                   <span key={pl.id} className="plugin-chip">
                     <button className={pl.bypass ? "btn btn-x" : "btn btn-x btn-preview"} title={pl.bypass ? "Desligado (bypass)" : "Ligado"} onClick={() => run("audio.setPluginBypass", { inputId: i.id, pluginId: pl.id, on: !pl.bypass })}>{pl.name}</button>
-                    <button className="btn btn-x" title="Abrir parâmetros" onClick={() => run("audio.openPluginUI", { inputId: i.id, pluginId: pl.id })}>⚙</button>
+                    <button className="btn btn-x" title="Abrir parâmetros" onClick={() => void editPluginParams(run, i.id, pl.id, pl.name)}>⚙</button>
                     <button className="btn btn-x" title="Remover" onClick={() => run("audio.removePlugin", { inputId: i.id, pluginId: pl.id })}>×</button>
                   </span>
                 ))}

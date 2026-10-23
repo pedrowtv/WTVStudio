@@ -27,6 +27,8 @@ public:
     std::string addPlugin(const std::string &inputId, const std::string &componentId, std::string &name, std::string &error);
     bool removePlugin(const std::string &inputId, const std::string &pluginId);
     bool setPluginBypass(const std::string &inputId, const std::string &pluginId, bool bypass);
+    json pluginParams(const std::string &inputId, const std::string &pluginId);          // {properties:[...], values:{...}}
+    bool setPluginParams(const std::string &inputId, const std::string &pluginId, const json &params);
 
     static json catalogue();       // devices.audioUnits
     json monitoringDevices();      // devices.audioOut

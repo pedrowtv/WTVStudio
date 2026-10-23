@@ -46,12 +46,13 @@ export function App({ engineUrl, token }: { engineUrl: string; token: string | n
   const prompt = usePromptHost();
 
   const run = useCallback(
-    async (method: string, params?: unknown) => {
+    async (method: string, params?: unknown): Promise<unknown> => {
       setErro(null);
       try {
-        await client?.call(method, params);
+        return await client?.call(method, params);
       } catch (e) {
         setErro(traduz(e));
+        return undefined;
       }
     },
     [client],

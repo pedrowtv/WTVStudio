@@ -5,6 +5,7 @@
 #include "Outputs.h"
 #include "AudioEngine.h"
 #include "NDI.h"
+#include "Projector.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -117,21 +118,24 @@ int main(int argc, char **argv) {
     signal(SIGTERM, [](int) { g_stop = true; });
     fprintf(stderr, "WTV Engine %s em http://%s:%d (libobs %s, %s)\n", ENGINE_VERSION, sc.bind.c_str(), sc.port, obs_get_version_string(), rt.videoEncoderId().c_str());
 
-    int tick = 0;
-    while (!g_stop && !cmd.shutdownRequested) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (++tick % 5 == 0) cmd.tickMedia();
-        if (tick % 50 == 0 && NDI::available()) { json ndi = NDI::discover(0); store.mutate([&](json &s) { s["devices"]["ndiSources"] = ndi; }); }
-        if (server.hasPreviewClients()) server.sendMeters(audio.metersFrame(store.state()["inputOrder"]));
-    }
-    fprintf(stderr, "a encerrar\n");
-    if (!sc.dev) unlink(engineJson.c_str());
-    preview.stop();
-    outputs.shutdown();
-    server.stop();
-    audio.shutdown();
-    NDI::shutdown();
-    sw.shutdown();
-    rt.stop();
-    return 0;
+    // O main thread fica com o ciclo do AppKit (projector); o motor corre numa thread própria.
+    return Projector::runMainLoop([&] {
+        int tick = 0;
+        while (!g_stop && !cmd.shutdownRequested) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (++tick % 5 == 0) cmd.tickMedia();
+            if (tick % 50 == 0 && NDI::available()) { json ndi = NDI::discover(0); store.mutate([&](json &s) { s["devices"]["ndiSources"] = ndi; }); }
+            if (server.hasPreviewClients()) server.sendMeters(audio.metersFrame(store.state()["inputOrder"]));
+        }
+        fprintf(stderr, "a encerrar\n");
+        if (!sc.dev) unlink(engineJson.c_str());
+        Projector::close();
+        preview.stop();
+        outputs.shutdown();
+        server.stop();
+        audio.shutdown();
+        NDI::shutdown();
+        sw.shutdown();
+        rt.stop();
+    });
 }

@@ -194,3 +194,77 @@ std::vector<uint8_t> AudioEngine::metersFrame(const json &order) {
     out[0] = count & 0xFF; out[1] = count >> 8;
     return out;
 }
+
+static json dataToJson(obs_data_t *d) {
+    json out = json::object();
+    for (obs_data_item_t *it = obs_data_first(d); it; obs_data_item_next(&it)) {
+        const char *k = obs_data_item_get_name(it);
+        switch (obs_data_item_gettype(it)) {
+            case OBS_DATA_NUMBER: out[k] = obs_data_item_numtype(it) == OBS_DATA_NUM_INT ? json((long long)obs_data_item_get_int(it)) : json(obs_data_item_get_double(it)); break;
+            case OBS_DATA_STRING: out[k] = obs_data_item_get_string(it); break;
+            case OBS_DATA_BOOLEAN: out[k] = obs_data_item_get_bool(it); break;
+            default: break;
+        }
+    }
+    return out;
+}
+
+json AudioEngine::pluginParams(const std::string &id, const std::string &pid) {
+    std::lock_guard l(m_);
+    auto it = channels_.find(id);
+    if (it == channels_.end()) return json();
+    auto f = it->second->plugins.find(pid);
+    if (f == it->second->plugins.end()) return json();
+    obs_source_t *filter = f->second;
+    obs_data_t *settings = obs_source_get_settings(filter);
+    obs_data_t *defaults = obs_data_get_defaults(settings);
+    json values = dataToJson(defaults);
+    for (auto &[k, v] : dataToJson(settings).items()) values[k] = v;
+    obs_data_release(defaults); obs_data_release(settings);
+    json props = json::array();
+    obs_properties_t *ps = obs_source_properties(filter);
+    for (obs_property_t *p = obs_properties_first(ps); p; obs_property_next(&p)) {
+        if (!obs_property_visible(p)) continue;
+        json e = {{"name", obs_property_name(p)}, {"description", obs_property_description(p) ? obs_property_description(p) : obs_property_name(p)}};
+        switch (obs_property_get_type(p)) {
+            case OBS_PROPERTY_FLOAT: e["type"] = "float"; e["min"] = obs_property_float_min(p); e["max"] = obs_property_float_max(p); e["step"] = obs_property_float_step(p); break;
+            case OBS_PROPERTY_INT: e["type"] = "int"; e["min"] = obs_property_int_min(p); e["max"] = obs_property_int_max(p); e["step"] = obs_property_int_step(p); break;
+            case OBS_PROPERTY_BOOL: e["type"] = "bool"; break;
+            case OBS_PROPERTY_TEXT: e["type"] = "text"; break;
+            case OBS_PROPERTY_LIST: {
+                e["type"] = "list"; json opts = json::array();
+                enum obs_combo_format fmt = obs_property_list_format(p);
+                for (size_t i = 0; i < obs_property_list_item_count(p); i++) {
+                    json o = {{"name", obs_property_list_item_name(p, i)}};
+                    if (fmt == OBS_COMBO_FORMAT_INT) o["value"] = (long long)obs_property_list_item_int(p, i);
+                    else if (fmt == OBS_COMBO_FORMAT_FLOAT) o["value"] = obs_property_list_item_float(p, i);
+                    else o["value"] = obs_property_list_item_string(p, i);
+                    opts.push_back(o);
+                }
+                e["options"] = opts; break;
+            }
+            default: continue;
+        }
+        props.push_back(e);
+    }
+    obs_properties_destroy(ps);
+    return {{"properties", props}, {"values", values}};
+}
+
+bool AudioEngine::setPluginParams(const std::string &id, const std::string &pid, const json &params) {
+    std::lock_guard l(m_);
+    auto it = channels_.find(id);
+    if (it == channels_.end()) return false;
+    auto f = it->second->plugins.find(pid);
+    if (f == it->second->plugins.end() || !params.is_object()) return false;
+    obs_data_t *d = obs_data_create();
+    for (auto &[k, v] : params.items()) {
+        if (v.is_boolean()) obs_data_set_bool(d, k.c_str(), v.get<bool>());
+        else if (v.is_number_integer()) obs_data_set_int(d, k.c_str(), v.get<long long>());
+        else if (v.is_number()) obs_data_set_double(d, k.c_str(), v.get<double>());
+        else if (v.is_string()) obs_data_set_string(d, k.c_str(), v.get<std::string>().c_str());
+    }
+    obs_source_update(f->second, d);
+    obs_data_release(d);
+    return true;
+}

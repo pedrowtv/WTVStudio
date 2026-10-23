@@ -38,6 +38,7 @@ public:
     obs_source_t *sourceRef(const std::string &id) { std::lock_guard l(m_); return source(id); } // sem retain: válido enquanto a fonte existir // largura > 0 → a fonte está a produzir imagem
 
     video_t *multiviewVideo() { return mvVideo_; }
+    obs_source_t *multiviewSource() { return obs_scene_get_source(mvScene_); }
     std::function<void()> onTransitionDone; // chamado (na thread de vídeo) quando uma transição automática/manual termina
 
 private:

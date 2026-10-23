@@ -228,3 +228,10 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
 ## 7. Versão
 
 `session.hello` devolve `protocolVersion: 1`. Alterações incompatíveis incrementam a versão; a UI recusa ligar a versões maiores e mostra "Actualize o WTV Studio".
+
+## Acrescentos do motor libobs (2026-10-23)
+
+- `audio.getPluginParams {inputId, pluginId}` → `{properties: [{name, description, type: float|int|bool|text|list, min?, max?, step?, options?: [{name, value}]}], values: {…}}`
+  (propriedades do filtro da libobs; `audio.openPluginUI` devolve o mesmo porque os filtros não têm janela própria).
+- `audio.setPluginParam {inputId, pluginId, params: {nome: valor}}` aplica os valores ao filtro.
+- `projector.set` aceita `source` = `"program"`, `"multiview"` ou um `inputId`; `fullscreen` é ignorado no ecrã principal.
