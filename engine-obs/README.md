@@ -15,6 +15,10 @@ src/PreviewOutput.*  saída libobs própria (OBS_OUTPUT_ENCODED) que entrega os 
                      Annex B → AVCC, avcC a cada keyframe
 src/ControlServer.*  civetweb: HTTP (UI, /api/session, /api/health) + WebSockets de controlo e preview
 src/Commands.*       despacho dos métodos JSON-RPC
+src/AudioEngine.*    VU por fonte (obs_volmeter, true peak) e por barramento (callbacks das tracks 1–3 = Master/A/B),
+                     ganho, pan, atraso, mute, solo, AFV (fonte fora do ecrã na cena Program quando desligado),
+                     barramentos por fonte (máscara de tracks), monitorização por barramento, filtros da libobs
+                     como plugins (RNNoise, gate, compressor, limitador, expander, EQ, ganho); stream 16 a 10 Hz
 src/Outputs.*        codificadores de Program partilhados (encode-once: VideoToolbox H.264 + CoreAudio AAC),
                      saídas RTMP (rtmp_output) e SRT (ffmpeg_mpegts_muxer) com serviço rtmp_custom, reconexão
                      e estado por sinais start/stop/reconnect; gravação via ffmpeg_muxer
@@ -36,5 +40,7 @@ media play/pause/stop/seek/loop com posição no estado, preview multiview ~50 f
 gravação mp4, overlays 1–4 no Program (verificado em frame gravado), RTMP para ffmpeg local (7 s H.264+AAC),
 SRT em loopback entre a saída e a entrada do próprio motor (o ffmpeg do Homebrew não tem libsrt).
 Nota: fontes de rede (ffmpeg_source) levam `restart_on_activate=false` para correrem sem estar em Program.
-Por fazer: NDI, barramentos/plugins de áudio, mixer modular com VU,
+Áudio verificado com um clip de tom: VU por fonte e barramento, ganho −20 dB, bus A/Master, AFV, mute, RNNoise,
+barramento das saídas (audio.setOutputBus, só com saídas paradas). Por fazer: NDI, parâmetros dos filtros (sem janela própria),
+ganho Master,
 projector, token/cookie fora de `--dev`, engine.json para o Electron, empacotamento em `WTV Engine.app`.

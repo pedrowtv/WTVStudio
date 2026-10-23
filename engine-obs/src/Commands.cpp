@@ -16,8 +16,21 @@ static std::string nowIso() {
     char buf[32]; time_t t = time(nullptr); strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%SZ", gmtime(&t)); return buf;
 }
 
-Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, std::string v)
-    : store_(store), sw_(sw), rt_(rt), out_(out), version_(std::move(v)) {}
+Commands::Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string v)
+    : store_(store), sw_(sw), rt_(rt), out_(out), audio_(audio), version_(std::move(v)) {
+    store_.mutate([&](json &s) { s["devices"]["audioUnits"] = AudioEngine::catalogue(); s["devices"]["audioOut"] = audio_.monitoringDevices(); });
+}
+
+void Commands::applyAudio(const std::string &only) {
+    json s = store_.state();
+    bool anySolo = false;
+    for (auto &[id, ch] : s["audio"]["inputs"].items()) if (ch.value("solo", false)) anySolo = true;
+    std::string monBus = s["audio"]["monitor"].value("bus", "master");
+    for (auto &[id, ch] : s["audio"]["inputs"].items()) if (only.empty() || only == id) {
+        audio_.applyChannel(id, ch, anySolo, monBus);
+        sw_.setAlwaysAudible(id, !ch.value("afv", true));
+    }
+}
 
 json Commands::handle(const json &req) {
     json id = req.value("id", json());
@@ -129,6 +142,8 @@ json Commands::dispatch(const std::string &method, const json &p) {
         });
         json st = store_.state();
         if (st["program"]["inputId"] == id) sw_.cut(id);
+        audio_.attach(id, sw_.sourceRef(id));
+        applyAudio(id);
         syncMultiview();
         return {{"inputId", id}};
     }
@@ -167,6 +182,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
     }
     if (method == "input.remove") {
         std::string id = requireInput(p);
+        audio_.detach(id);
         sw_.removeInput(id);
         store_.mutate([&](json &st) {
             st["inputs"].erase(id);
@@ -263,7 +279,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         sw_.setOverlay(slot, s["overlays"][slot - 1], s["project"]["raster"].value("fps", 50.0));
         return json::object();
     }
-    if (method == "audio.setGain" || method == "audio.setMute" || method == "audio.setSolo" || method == "audio.setAFV" || method == "audio.setPan" || method == "audio.setDelay") {
+    if (method == "audio.setGain" || method == "audio.setMute" || method == "audio.setSolo" || method == "audio.setAFV" || method == "audio.setPan" || method == "audio.setDelay" || method == "audio.setBus") {
         std::string target = p.value("inputId", p.value("target", "master"));
         store_.mutate([&](json &st) {
             json &ch = target == "master" ? st["audio"]["master"] : st["audio"]["inputs"][target];
@@ -271,16 +287,57 @@ json Commands::dispatch(const std::string &method, const json &p) {
             if (method == "audio.setMute") ch["mute"] = p.value("on", false);
             if (method == "audio.setSolo") ch["solo"] = p.value("on", false);
             if (method == "audio.setAFV") ch["afv"] = p.value("on", false);
-            if (method == "audio.setPan") ch["pan"] = p.value("pan", 0.0);
+            if (method == "audio.setPan") ch["pan"] = std::min(1.0, std::max(-1.0, p.value("pan", 0.0)));
             if (method == "audio.setDelay") ch["delayMs"] = p.value("ms", 0);
+            if (method == "audio.setBus") {
+                std::string bus = p.value("bus", "master"); bool on = p.value("on", true);
+                json buses = json::array();
+                for (auto &b : ch.value("buses", json::array({"master"}))) if (b != bus) buses.push_back(b);
+                if (on) buses.push_back(bus);
+                ch["buses"] = buses;
+            }
         });
-        json s = store_.state();
-        if (target != "master" && s["audio"]["inputs"].contains(target)) {
-            auto &ch = s["audio"]["inputs"][target];
-            sw_.setAudio(target, ch.value("db", 0.0), ch.value("mute", false));
-        } // master: a libobs 32 não tem volume global; aplicar como ganho nos codificadores fica para o passo de áudio
+        if (target == "master") { /* o Master da libobs é a track 1; o ganho global fica para o passo dos codificadores */ }
+        else applyAudio(method == "audio.setSolo" ? "" : target);
         return json::object();
     }
+    if (method == "audio.setMonitor") {
+        store_.mutate([&](json &st) {
+            if (p.contains("deviceId")) st["audio"]["monitor"]["deviceId"] = p["deviceId"];
+            if (p.contains("db")) st["audio"]["monitor"]["db"] = p["db"];
+            if (p.contains("bus")) st["audio"]["monitor"]["bus"] = p["bus"];
+        });
+        if (p.contains("deviceId")) audio_.setMonitorDevice(p["deviceId"].is_string() ? p["deviceId"].get<std::string>() : "");
+        applyAudio();
+        return json::object();
+    }
+    if (method == "audio.setOutputBus") {
+        std::string which = p.value("output", "stream"), bus = p.value("bus", "master");
+        int idx = bus == "a" ? 1 : bus == "b" ? 2 : 0;
+        std::string err;
+        if (which == "stream" && !out_.setStreamBus(idx, err)) throw RpcError{err, "parar as saídas antes de mudar o barramento"};
+        store_.mutate([&](json &st) { st["audio"]["outputBus"][which] = bus; });
+        return json::object();
+    }
+    if (method == "audio.addPlugin") {
+        std::string id = requireInput(p), name, err;
+        std::string pid = audio_.addPlugin(id, p.value("componentId", ""), name, err);
+        if (pid.empty()) throw RpcError{err, "não foi possível adicionar o plugin"};
+        store_.mutate([&](json &st) { st["audio"]["inputs"][id]["plugins"].push_back({{"id", pid}, {"componentId", p.value("componentId", "")}, {"name", name}, {"bypass", false}}); });
+        return {{"pluginId", pid}};
+    }
+    if (method == "audio.removePlugin" || method == "audio.setPluginBypass") {
+        std::string id = requireInput(p), pid = p.value("pluginId", "");
+        bool ok = method == "audio.removePlugin" ? audio_.removePlugin(id, pid) : audio_.setPluginBypass(id, pid, p.value("on", false));
+        if (!ok) throw RpcError{"INVALID_PARAMS", "plugin não encontrado"};
+        store_.mutate([&](json &st) {
+            json &pl = st["audio"]["inputs"][id]["plugins"]; json next = json::array();
+            for (auto &x : pl) { if (x["id"] != pid) next.push_back(x); else if (method == "audio.setPluginBypass") { x["bypass"] = p.value("on", false); next.push_back(x); } }
+            pl = next;
+        });
+        return json::object();
+    }
+    if (method == "audio.openPluginUI") throw RpcError{"CAPABILITY_MISSING", "os filtros da libobs não têm janela própria; parâmetros por audio.setPluginParam (em breve)"};
     if (method == "preview.setLayout") {
         std::string layout = p.value("layoutId", "2+8");
         store_.mutate([&](json &st) { st["multiview"]["layoutId"] = layout; refreshMultiview(st); });
@@ -309,15 +366,11 @@ json Commands::dispatch(const std::string &method, const json &p) {
         store_.mutate([&](json &st) { st["project"]["raster"] = {{"width", w}, {"height", h}, {"fps", fps}}; });
         return json::object();
     }
-    if (method == "preview.keyframe" || method == "devices.refresh" || method == "projector.set" || method == "audio.setMonitor" ||
-        method == "audio.setBus" || method == "audio.setOutputBus" || method == "project.save" || method == "project.load") {
+    if (method == "preview.keyframe" || method == "devices.refresh" || method == "projector.set" || method == "project.save" || method == "project.load") {
         return json::object();
     }
     if (method == "project.list") return {{"projects", json::array()}};
     if (method == "permissions.status") return store_.state()["permissions"];
-    if (method == "audio.addPlugin" || method == "audio.removePlugin" || method == "audio.setPluginBypass" || method == "audio.openPluginUI") {
-        throw RpcError{"CAPABILITY_MISSING", "ainda não implementado no motor libobs"};
-    }
     if (method == "engine.shutdown") { shutdownRequested = true; return json::object(); }
     throw RpcError{"METHOD_NOT_FOUND", "método desconhecido: " + method};
 }

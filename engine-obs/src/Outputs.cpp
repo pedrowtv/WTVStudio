@@ -19,8 +19,8 @@ bool Outputs::ensureEncoders() {
     obs_data_release(vs);
     obs_data_t *as = obs_data_create();
     obs_data_set_int(as, "bitrate", 160);
-    audio_ = obs_audio_encoder_create("CoreAudio_AAC", "wtv-program-aac", as, 0, nullptr);
-    if (!audio_) audio_ = obs_audio_encoder_create("ffmpeg_aac", "wtv-program-aac", as, 0, nullptr);
+    audio_ = obs_audio_encoder_create("CoreAudio_AAC", "wtv-program-aac", as, mixerIdx_, nullptr);
+    if (!audio_) audio_ = obs_audio_encoder_create("ffmpeg_aac", "wtv-program-aac", as, mixerIdx_, nullptr);
     obs_data_release(as);
     if (!video_ || !audio_) return false;
     obs_encoder_set_video(video_, obs_get_video());
@@ -213,4 +213,12 @@ void Outputs::shutdown() {
     for (auto &[id, c] : ctx_) delete c;
     ctx_.clear();
     if (video_) { obs_encoder_release(video_); obs_encoder_release(audio_); video_ = audio_ = nullptr; }
+}
+
+bool Outputs::setStreamBus(int idx, std::string &error) {
+    std::lock_guard l(m_);
+    if (anyActive()) { error = "ALREADY_RUNNING"; return false; }
+    mixerIdx_ = idx;
+    releaseEncodersIfIdle();
+    return true;
 }

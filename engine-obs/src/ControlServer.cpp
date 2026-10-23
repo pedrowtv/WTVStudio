@@ -106,3 +106,16 @@ void ControlServer::sendPreview(bool key, const std::vector<uint8_t> &avcC, cons
         mg_unlock_connection(pc.conn);
     }
 }
+
+void ControlServer::sendMeters(const std::vector<uint8_t> &payload) {
+    std::lock_guard l(m_);
+    if (preview_.empty()) return;
+    std::vector<uint8_t> buf(24 + payload.size());
+    uint8_t *h = buf.data();
+    memcpy(h, "WTVF", 4);
+    h[4] = 1; h[5] = 16; h[6] = 0; h[7] = 0;
+    uint32_t seq = seq_++, len = (uint32_t)payload.size(); uint64_t pts = 0;
+    memcpy(h + 8, &seq, 4); memcpy(h + 12, &pts, 8); memcpy(h + 20, &len, 4);
+    memcpy(h + 24, payload.data(), payload.size());
+    for (auto &pc : preview_) { mg_lock_connection(pc.conn); mg_websocket_write(pc.conn, MG_WEBSOCKET_OPCODE_BINARY, (const char *)buf.data(), buf.size()); mg_unlock_connection(pc.conn); }
+}

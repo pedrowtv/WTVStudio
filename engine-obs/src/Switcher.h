@@ -28,11 +28,14 @@ public:
     void rebuildMultiview(const json &tiles, const std::string &previewId);
     /// Aplica um slot de overlay (1..4) do estado: fonte, rectângulo, opacidade e transição on/off.
     void setOverlay(int slot, const json &overlay, double fps);
+    /// AFV desligado: a fonte entra na cena Program como item fora do ecrã (1×1 px) para ser sempre misturada no áudio.
+    void setAlwaysAudible(const std::string &id, bool on);
 
     void setAudio(const std::string &id, double db, bool mute);
     void mediaCommand(const std::string &id, const std::string &cmd, const json &p);
     Media mediaInfo(const std::string &id);
-    bool hasVideo(const std::string &id); // largura > 0 → a fonte está a produzir imagem
+    bool hasVideo(const std::string &id);
+    obs_source_t *sourceRef(const std::string &id) { std::lock_guard l(m_); return source(id); } // sem retain: válido enquanto a fonte existir // largura > 0 → a fonte está a produzir imagem
 
     video_t *multiviewVideo() { return mvVideo_; }
     std::function<void()> onTransitionDone; // chamado (na thread de vídeo) quando uma transição automática/manual termina
@@ -51,6 +54,7 @@ private:
     obs_sceneitem_t *programItem_ = nullptr;
     struct Overlay { obs_source_t *fade = nullptr; obs_scene_t *scene = nullptr; obs_source_t *opacity = nullptr; bool on = false; std::string inputId; };
     Overlay overlays_[4];
+    std::map<std::string, obs_sceneitem_t *> audioItems_;
     obs_source_t *black_ = nullptr;
     obs_scene_t *mvScene_ = nullptr;
     obs_view_t *mvView_ = nullptr;

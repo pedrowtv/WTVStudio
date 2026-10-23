@@ -169,6 +169,7 @@ void Switcher::removeInput(const std::string &id) {
     if (it == inputs_.end()) return;
     obs_source_t *src = it->second;
     inputs_.erase(it);
+    if (audioItems_.count(id)) { obs_sceneitem_remove(audioItems_[id]); audioItems_.erase(id); }
     if (obs_transition_get_active_source(current_) == src) obs_transition_set(current_, nullptr);
     obs_source_remove(src);
     obs_source_release(src);
@@ -358,4 +359,20 @@ bool Switcher::hasVideo(const std::string &id) {
     std::lock_guard l(m_);
     obs_source_t *s = source(id);
     return s && obs_source_get_width(s) > 0;
+}
+
+void Switcher::setAlwaysAudible(const std::string &id, bool on) {
+    std::lock_guard l(m_);
+    auto it = audioItems_.find(id);
+    if (!on) { if (it != audioItems_.end()) { obs_sceneitem_remove(it->second); audioItems_.erase(it); } return; }
+    if (it != audioItems_.end()) return;
+    obs_source_t *src = source(id);
+    if (!src) return;
+    obs_sceneitem_t *item = obs_scene_add(programScene_, src);
+    vec2 pos{-10.f, -10.f}, bounds{1.f, 1.f};
+    obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_STRETCH);
+    obs_sceneitem_set_bounds(item, &bounds);
+    obs_sceneitem_set_pos(item, &pos);
+    obs_sceneitem_set_order(item, OBS_ORDER_MOVE_BOTTOM);
+    audioItems_[id] = item;
 }

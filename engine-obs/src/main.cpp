@@ -3,6 +3,7 @@
 #include "ControlServer.h"
 #include "ObsRuntime.h"
 #include "Outputs.h"
+#include "AudioEngine.h"
 #include "PreviewOutput.h"
 #include "StateStore.h"
 #include "Switcher.h"
@@ -45,7 +46,9 @@ int main(int argc, char **argv) {
 
     StateStore store(defaultState(ENGINE_VERSION, sc.bind + ":" + std::to_string(sc.port)));
     Outputs outputs(store, rt);
-    Commands cmd(store, sw, rt, outputs, ENGINE_VERSION);
+    AudioEngine audio;
+    audio.start();
+    Commands cmd(store, sw, rt, outputs, audio, ENGINE_VERSION);
     sw.onTransitionDone = [&] { cmd.onTransitionDone(); };
 
     ControlServer server;
@@ -68,11 +71,13 @@ int main(int argc, char **argv) {
     while (!g_stop && !cmd.shutdownRequested) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (++tick % 5 == 0) cmd.tickMedia();
+        if (server.hasPreviewClients()) server.sendMeters(audio.metersFrame(store.state()["inputOrder"]));
     }
     fprintf(stderr, "a encerrar\n");
     preview.stop();
     outputs.shutdown();
     server.stop();
+    audio.shutdown();
     sw.shutdown();
     rt.stop();
     return 0;

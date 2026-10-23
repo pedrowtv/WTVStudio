@@ -3,13 +3,14 @@
 #include "StateStore.h"
 #include "Switcher.h"
 #include "Outputs.h"
+#include "AudioEngine.h"
 #include <atomic>
 #include <string>
 
 /// Despacho JSON-RPC 2.0 (métodos do PROTOCOLO.md) sobre o StateStore e o Switcher.
 class Commands {
 public:
-    Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, std::string engineVersion);
+    Commands(StateStore &store, Switcher &sw, ObsRuntime &rt, Outputs &out, AudioEngine &audio, std::string engineVersion);
     json handle(const json &req);
     void onTransitionDone();     // troca Preview/Program no estado quando a libobs termina a transição
     void tickMedia();            // actualiza posições/estado de media (chamar ~2×/s)
@@ -24,6 +25,8 @@ private:
     Switcher &sw_;
     ObsRuntime &rt_;
     Outputs &out_;
+    AudioEngine &audio_;
+    void applyAudio(const std::string &inputId = ""); // "" = todos os canais
     std::string version_;
 };
 

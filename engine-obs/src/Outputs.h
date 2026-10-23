@@ -19,6 +19,7 @@ public:
     bool startRecording(std::string &error);
     void stopRecording();
     bool anyActive();
+    bool setStreamBus(int mixerIdx, std::string &error); // 0 Master, 1 A, 2 B; só com saídas paradas
 
 private:
     struct Entry { std::string kind, url, key; int latencyMs = 120; obs_output_t *output = nullptr; obs_service_t *service = nullptr; };
@@ -38,4 +39,5 @@ private:
     std::map<std::string, SignalCtx *> ctx_;
     obs_encoder_t *video_ = nullptr, *audio_ = nullptr;
     obs_output_t *rec_ = nullptr;
+    int mixerIdx_ = 0;
 };

@@ -19,6 +19,7 @@ public:
     void broadcastControl(const json &message);
     void sendPreview(bool keyframe, const std::vector<uint8_t> &avcC, const uint8_t *au, size_t len, uint64_t ptsMicros);
     bool hasPreviewClients();
+    void sendMeters(const std::vector<uint8_t> &payload); // streamId 16 a todos os clientes de preview
 
 private:
     static int wsConnect(const mg_connection *, void *);
