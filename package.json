@@ -1,0 +1,23 @@
+{
+  "name": "wtv-studio-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "WTV Studio — misturador de vídeo ao vivo (Electron UI + motor Swift)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "engine:build": "swift build --package-path engine --scratch-path engine/.build --cache-path .cache/swiftpm",
+    "engine:release": "swift build -c release --package-path engine --scratch-path engine/.build --cache-path .cache/swiftpm",
+    "engine:run": "swift run --package-path engine --scratch-path engine/.build --cache-path .cache/swiftpm wtv-engine --dev",
+    "engine:test": "swift test --package-path engine --scratch-path engine/.build --cache-path .cache/swiftpm",
+    "studio:dev": "npm run dev --workspace apps/studio",
+    "studio:build": "npm run build --workspace apps/studio",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

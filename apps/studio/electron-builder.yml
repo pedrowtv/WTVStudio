@@ -1,0 +1,30 @@
+appId: pt.waytv.wtvstudio
+asar: false
+productName: WTV Studio
+copyright: © WayTV
+directories:
+  output: ../../release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!node_modules/**"
+  - "!**/._*"
+  - "!**/.DS_Store"
+extraFiles:
+  - from: ../../engine/dist/WTV Engine.app
+    to: Helpers/WTV Engine.app
+mac:
+  category: public.app-category.video
+  target:
+    - target: dir
+      arch: [arm64]
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extendInfo:
+    NSCameraUsageDescription: O WTV Studio usa a câmara como fonte de vídeo para a emissão.
+    NSMicrophoneUsageDescription: O WTV Studio usa o microfone e as interfaces de áudio como fontes de som.
+    NSLocalNetworkUsageDescription: O WTV Studio procura fontes NDI e aceita ligações de controlo na rede local.
+    NSBonjourServices: ["_ndi._tcp", "_wtv._tcp"]
+electronVersion: 44.9.0

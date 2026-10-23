@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.swift text
+*.ts text
+*.tsx text
+*.json text
+*.md text
+*.metal text
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.mov binary
+*.wav binary

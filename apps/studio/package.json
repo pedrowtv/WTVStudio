@@ -1,0 +1,34 @@
+{
+  "name": "@wtv/studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WTV Studio — interface de controlo (Electron + React)",
+  "author": "WayTV <geral@waytv.pt>",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "package": "electron-vite build && electron-builder --mac --arm64 --dir"
+  },
+  "dependencies": {
+    "@wtv/protocol": "1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "44.9.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^6.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
+  }
+}

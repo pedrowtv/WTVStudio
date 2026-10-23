@@ -1,0 +1,25 @@
+# Sistema / exFAT
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Caches e dependências
+.cache/
+node_modules/
+dist/
+out/
+release/
+*.log
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+
+# Ambiente local
+.env
+.env.local
