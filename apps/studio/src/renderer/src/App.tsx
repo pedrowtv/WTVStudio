@@ -6,7 +6,7 @@ import { PreviewClient } from "./preview";
 import { frameRouter } from "./frames";
 import { Monitor } from "./components/Monitor";
 import { TransitionColumn } from "./components/TransitionColumn";
-import { InputStrip } from "./components/InputStrip";
+import { InputStrip, InputTabs, useStripTab } from "./components/InputStrip";
 import { Overlays } from "./components/Overlays";
 import { AudioPanel, OutputsPanel, SettingsPanel, PlayoutPanel, SourcesPanel } from "./components/panels";
 import { DOCK_ORDER, DOCK_TITLES, DockArea, dockChannel, useDocks, type DockName } from "./components/Docks";
@@ -93,6 +93,7 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
   const [previewStatus, setPreviewStatus] = useState("a ligar…");
   const prompt = usePromptHost();
   const docks = useDocks();
+  const [stripTab, setStripTab] = useStripTab();
   const [panelsMenu, setPanelsMenu] = useState(false);
 
   const run = useCallback(
@@ -237,9 +238,11 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
         </div>
       </header>
 
-      {erro && <div className="banner banner-erro" onClick={() => setErro(null)}>{erro}</div>}
-      {critical.map((a) => <div key={a.id} className="banner banner-erro">{a.detail ?? a.code}</div>)}
-      {connection === "disconnected" && <div className="banner banner-aviso">Sem ligação ao motor. A emissão continua se o motor estiver a correr; a reconectar…</div>}
+      <div className="banners">{/* sempre presente: mantém as linhas da grelha alinhadas */}
+        {erro && <div className="banner banner-erro" onClick={() => setErro(null)}>{erro}</div>}
+        {critical.map((a) => <div key={a.id} className="banner banner-erro">{a.detail ?? a.code}</div>)}
+        {connection === "disconnected" && <div className="banner banner-aviso">Sem ligação ao motor. A emissão continua se o motor estiver a correr; a reconectar…</div>}
+      </div>
 
       <main className="stage">
         <Monitor bus="preview" run={run} />
@@ -248,13 +251,14 @@ export function App({ engineUrl, token, panel }: { engineUrl: string; token: str
       </main>
 
       <div className="strip-bar">
-        <span className="muted small">Fontes ({inputCount}) · clique = Preview · duplo clique = Cut · teclas 1–9, Enter, Espaço, F</span>
+        <InputTabs tab={stripTab} setTab={setStripTab} />
+        <span className="muted small">clique = Preview · duplo clique = Cut · teclas 1–9, Enter, Espaço, F</span>
         <span className="spacer" />
         <button className="btn" onClick={() => docks.show("audio")}>
           🔊 Audio Mixer <span className="mini-meter"><span style={{ width: `${Math.max(0, Math.min(100, ((masterDb + 60) / 60) * 100))}%` }} /></span>
         </button>
       </div>
-      <InputStrip run={run} />
+      <InputStrip run={run} tab={stripTab} />
       <DockArea docks={docks} run={run} meters={meters} />
 
       <footer className="bottombar">

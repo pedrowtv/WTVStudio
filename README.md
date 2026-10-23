@@ -77,6 +77,8 @@ ffplayout (2026-10-23): o playout 24/7 em Rust corre como processo separado e en
 
 MultiCorder (2026-10-23): gravação ISO por fonte (dock Saídas → MultiCorder, botão MultiCorder na barra inferior), em paralelo com o Program, com o vídeo da fonte e só o áudio dela (AFV respeitado: fora do ar a fonte não entra nos buses mas grava); até 3 fontes com áudio em simultâneo (tracks 4–6 da libobs). Verificado com dois tons em ficheiros separados e Program silencioso.
 
+Categorias (2026-10-23): a faixa de fontes tem separadores Todas / Câmaras / VT / Gráficos / Chamadas / Áudio com contagens e cores; a categoria é deduzida do tipo da fonte e pode mudar-se no ⚙ do cartão (campo `category`, guardado no motor). Os números das fontes mantêm-se globais ao filtrar. Referências externas analisadas em [docs/REFERENCIAS.md](docs/REFERENCIAS.md).
+
 ## Plugins Audio Unit de terceiros
 
 O motor lista todos os Audio Units instalados no sistema (`AudioComponentFindNext`). Para instalar um plugin sem palavra-passe de administrador basta copiar o `.component` para `~/Library/Audio/Plug-Ins/Components/` (um `.pkg` pode ser aberto com `pkgutil --expand-full` para extrair o bundle). Validar com `auval -v <tipo> <subtipo> <fabricante>`. Plugins VST3 não são suportados: o motor só aloja Audio Units.

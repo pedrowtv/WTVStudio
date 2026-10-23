@@ -85,6 +85,23 @@ export type InputKind =
   | "srt"
   | "decklink";
 
+export type InputCategory = "cameras" | "vt" | "graphics" | "calls" | "audio";
+export const INPUT_CATEGORIES: { id: InputCategory; label: string; colour: string }[] = [
+  { id: "cameras", label: "Câmaras", colour: "#3b7dd8" },
+  { id: "vt", label: "VT", colour: "#8e44ad" },
+  { id: "graphics", label: "Gráficos", colour: "#e0a020" },
+  { id: "calls", label: "Chamadas", colour: "#2ea043" },
+  { id: "audio", label: "Áudio", colour: "#7f8c8d" },
+];
+/** Categoria por omissão a partir do tipo da fonte. */
+export function defaultCategory(kind: InputKind): InputCategory {
+  switch (kind) {
+    case "camera": case "ndi": case "srt": case "decklink": case "screen": return "cameras";
+    case "media": case "playlist": return "vt";
+    case "audioDevice": return "audio";
+    default: return "graphics";
+  }
+}
 export type InputStatus = "idle" | "starting" | "live" | "noSignal" | "error";
 
 export interface InputState {
@@ -93,6 +110,8 @@ export interface InputState {
   name: string;
   status: InputStatus;
   statusCode?: string;
+  /** Separador da faixa de fontes (cameras | vt | graphics | calls | audio); ausente = deduzido do kind. */
+  category?: InputCategory;
   format?: { width: number; height: number; fps: number; pixelFormat: "nv12" | "bgra" | "uyvy" | "v210" };
   latencyFrames: number;
   videoDelayFrames: number;

@@ -1,8 +1,12 @@
-import type { InputState } from "@wtv/protocol";
+import { useEffect, useState } from "react";
+import { INPUT_CATEGORIES, defaultCategory, type InputCategory, type InputState } from "@wtv/protocol";
 import { useTileCanvas } from "../frames";
 import { useStore } from "../store";
 import { newTxnId } from "../rpc";
-import { askText } from "../dialogs";
+import { askFields } from "../dialogs";
+
+const catOf = (i: InputState): InputCategory => i.category ?? defaultCategory(i.kind);
+const catColour = (c: InputCategory) => INPUT_CATEGORIES.find((x) => x.id === c)?.colour ?? "#666";
 
 type Run = (m: string, p?: unknown) => Promise<unknown>;
 
@@ -19,6 +23,7 @@ function InputCard({ input, index, run }: { input: InputState; index: number; ru
     <div className={`card${isProgram ? " card-program" : isPreview ? " card-preview" : ""}`}>
       <header className="card-head" onClick={() => run("switcher.setPreview", { inputId: input.id })} onDoubleClick={() => run("switcher.setPreview", { inputId: input.id }).then(() => run("switcher.cut", { txnId: newTxnId() }))}>
         <span className="card-num">{index + 1}</span>
+        <span className="card-cat" style={{ background: catColour(catOf(input)) }} title={INPUT_CATEGORIES.find((c) => c.id === catOf(input))?.label} />
         <span className="card-name" title={input.statusCode ?? input.status}>
           {input.name}
         </span>
@@ -63,7 +68,7 @@ function InputCard({ input, index, run }: { input: InputState; index: number; ru
         >
           Áudio
         </button>
-        <button className="btn btn-card" title="Definições da fonte" onClick={async () => { const name = await askText("Nome da fonte", "Nome", input.name); if (name) void run("input.update", { inputId: input.id, name }); }}>
+        <button className="btn btn-card" title="Definições da fonte (nome e categoria)" onClick={async () => { const f = await askFields("Definições da fonte", [{ key: "name", label: "Nome", defaultValue: input.name }, { key: "category", label: `Categoria (${INPUT_CATEGORIES.map((c) => c.id).join(" | ")})`, defaultValue: catOf(input) }]); if (!f) return; const category = INPUT_CATEGORIES.some((c) => c.id === f.category) ? f.category : null; void run("input.update", { inputId: input.id, name: f.name || input.name, category }); }}>
           ⚙
         </button>
       </div>
@@ -71,15 +76,40 @@ function InputCard({ input, index, run }: { input: InputState; index: number; ru
   );
 }
 
-export function InputStrip({ run }: { run: Run }) {
+const TAB_KEY = "wtv.strip.tab";
+
+/** Separadores de categorias na faixa de fontes (todas, câmaras, VT, gráficos, chamadas, áudio), à maneira do FreeMix/vMix. */
+export function InputTabs({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
   const engine = useStore((s) => s.engine);
   const inputs = engine ? engine.inputOrder.map((id) => engine.inputs[id]).filter(Boolean) : [];
+  const count = (c: InputCategory) => inputs.filter((i) => catOf(i) === c).length;
+  return (
+    <span className="strip-tabs">
+      <button className={tab === "all" ? "strip-tab on" : "strip-tab"} onClick={() => setTab("all")}>Todas <b>{inputs.length}</b></button>
+      {INPUT_CATEGORIES.map((c) => (
+        <button key={c.id} className={tab === c.id ? "strip-tab on" : "strip-tab"} style={{ "--cat": c.colour } as React.CSSProperties} onClick={() => setTab(c.id)}><i />{c.label} <b>{count(c.id)}</b></button>
+      ))}
+    </span>
+  );
+}
+
+export function useStripTab(): [string, (t: string) => void] {
+  const [tab, setTab] = useState<string>(() => { try { return localStorage.getItem(TAB_KEY) ?? "all"; } catch { return "all"; } });
+  useEffect(() => { try { localStorage.setItem(TAB_KEY, tab); } catch { /* sem storage */ } }, [tab]);
+  return [tab, setTab];
+}
+
+export function InputStrip({ run, tab }: { run: Run; tab: string }) {
+  const engine = useStore((s) => s.engine);
+  const inputs = engine ? engine.inputOrder.map((id) => engine.inputs[id]).filter(Boolean) : [];
+  const shown = tab === "all" ? inputs : inputs.filter((i) => catOf(i) === tab);
   return (
     <section className="strip">
-      {inputs.map((i, idx) => (
-        <InputCard key={i.id} input={i} index={idx} run={run} />
+      {shown.map((i) => (
+        <InputCard key={i.id} input={i} index={inputs.indexOf(i)} run={run} />
       ))}
       {inputs.length === 0 && <div className="muted strip-empty">Sem fontes. Use “Adicionar fonte” na barra inferior.</div>}
+      {inputs.length > 0 && shown.length === 0 && <div className="muted strip-empty">Sem fontes nesta categoria. Mude a categoria de uma fonte no ⚙ do cartão.</div>}
     </section>
   );
 }

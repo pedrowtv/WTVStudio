@@ -184,6 +184,7 @@ json Commands::dispatch(const std::string &method, const json &p) {
         store_.mutate([&](json &st) {
             json &in = st["inputs"][id];
             if (p.contains("name")) in["name"] = p["name"];
+            if (p.contains("category")) { if (p["category"].is_null() || p["category"] == "") in.erase("category"); else in["category"] = p["category"]; }
             if (p.contains("fit")) in["fit"] = p["fit"];
             if (p.contains("config") && p["config"].is_object()) for (auto &[k, v] : p["config"].items()) in["config"][k] = v;
             refreshMultiview(st);

@@ -247,3 +247,4 @@ Posições de media (`streamId` 17, 10 Hz): `u16 count` + `count × {u8 inputInd
 - MultiCorder (motor libobs): `record.isoStart {inputIds?: []}` (vazio = todas as fontes com vídeo) → `{started, failed}`; `record.isoStop {inputId?}` (sem id = todas).
   Estado em `recording.iso[inputId] = {status, file, startedAt, track}`. Cada ISO usa um obs_view próprio e uma track de áudio da libobs (4–6):
   máximo 3 ISO com áudio em simultâneo. Ficheiros em `<pasta de gravação>/iso/<nome> <data>.mp4`.
+- `input.update {category}` (motor libobs): categoria da faixa (`cameras | vt | graphics | calls | audio`; null remove e volta à deduzida pelo tipo); campo `InputState.category`.
