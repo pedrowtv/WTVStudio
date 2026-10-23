@@ -28,3 +28,12 @@ rtmp-services/
 # Código de referência do FreeMix (GPL-2, autorização do autor); 73 MB de imagens, fica fora do git
 FreeMix-*/
 obs-vmix/
+
+# Ruflo local secrets and runtime data
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+.swarm/
+.claude-flow/neural/
+.claude-flow/policy/
